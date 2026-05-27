@@ -99,21 +99,18 @@ def overseas_snapshot(svr: Literal["prod", "vps"] = "prod") -> dict:
 
     holdings = []
     for _, r in df1.iterrows():
-        qty = _f(r["cblc_qty13"])
-        cur = _f(r["ovrs_now_pric1"])
-        pchs = _f(r["frcr_pchs_amt"])
-        evl = qty * cur
-        pl = evl - pchs
         holdings.append({
             "symbol": str(r["pdno"]),
             "name": str(r["prdt_name"]),
-            "qty": qty,
+            # 당일 매수분은 cblc_qty13(정산 잔고)에 0으로 잡힘 → 체결수량합계 사용
+            "qty": _f(r["ccld_qty_smtl1"]),
             "avg": _f(r["avg_unpr3"]),
-            "cur": cur,
-            "pchs_usd": round(pchs, 2),
-            "eval_usd": round(evl, 2),
-            "pl_usd": round(pl, 2),
-            "pl_rate": round(pl / pchs * 100, 2) if pchs else 0.0,
+            "cur": _f(r["ovrs_now_pric1"]),
+            "pchs_usd": round(_f(r["frcr_pchs_amt"]), 2),
+            # 평가/손익/수익률은 KIS 제공값을 그대로 사용 (직접 계산 금지 — 당일분·수수료 반영)
+            "eval_usd": round(_f(r["frcr_evlu_amt2"]), 2),
+            "pl_usd": round(_f(r["evlu_pfls_amt2"]), 2),
+            "pl_rate": _f(r["evlu_pfls_rt1"]),
             "excg": str(r["item_lnkg_excg_cd"]),
         })
 

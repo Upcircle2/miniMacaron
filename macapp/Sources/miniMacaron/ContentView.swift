@@ -11,6 +11,7 @@ struct ContentView: View {
     @EnvironmentObject var model: BalanceModel
     @State private var sortMode: SortMode = .eval
     @State private var sortDesc = true  // 내림차순 기본
+    @State private var showKRW = false  // 해외 종목 값 표시 통화 (false=$, true=₩)
 
     var body: some View {
         if model.setupComplete == false || model.showSetup {
@@ -43,6 +44,13 @@ struct ContentView: View {
         HStack(spacing: 10) {
             Text("miniMacaron").font(.headline)
             Spacer()
+            if model.market == .overseas {
+                Button { showKRW.toggle() } label: {
+                    Text(showKRW ? "₩" : "$").frame(width: 14)
+                }
+                .buttonStyle(.borderless)
+                .help("종목 값 통화 전환 (₩/$)")
+            }
             Button {
                 Task { await model.fetchOnce() }
             } label: { Image(systemName: "arrow.clockwise") }
@@ -77,10 +85,13 @@ struct ContentView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             sortBar
-            columnHeader(valueLabel: "평가$")
+            columnHeader(valueLabel: showKRW ? "평가₩" : "평가$")
             grid(sortedOverseas(snap.holdings)) { h in
-                rowCells(symbol: h.symbol, cur: String(format: "$%.2f", h.cur),
-                         value: "$\(won(h.eval_usd))", rate: h.pl_rate, gain: h.pl_usd >= 0)
+                rowCells(
+                    symbol: h.symbol,
+                    cur: showKRW ? "₩\(won(h.cur * snap.exrt))" : String(format: "$%.2f", h.cur),
+                    value: showKRW ? "₩\(won(h.eval_usd * snap.exrt))" : "$\(won(h.eval_usd))",
+                    rate: h.pl_rate, gain: h.pl_usd >= 0)
             }
         } else {
             placeholder
