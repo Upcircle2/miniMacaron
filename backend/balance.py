@@ -99,6 +99,7 @@ def overseas_snapshot(svr: Literal["prod", "vps"] = "prod") -> dict:
             "qty": qty,
             "avg": _f(r["avg_unpr3"]),
             "cur": cur,
+            "pchs_usd": round(pchs, 2),
             "eval_usd": round(evl, 2),
             "pl_usd": round(pl, 2),
             "pl_rate": round(pl / pchs * 100, 2) if pchs else 0.0,
