@@ -33,8 +33,8 @@
 |---|---|
 | Service | `com.minimacaron.kis` |
 | Accounts | `app_key`, `app_secret`, `paper_app_key`, `paper_app_secret`, `hts_id`, `account_no`, `paper_account_no` |
-| Python | `keyring` 패키지 |
-| Swift | `Security.framework` (같은 항목 공유 가능) |
+| Python | `keyring` 패키지 (Keychain 단일 소유자 — 읽기·쓰기 모두 Python) |
+| Swift | **직접 Keychain 접근 금지.** 서명 안 된 ad-hoc 빌드가 Python이 만든 항목에 접근 시 매번 사용자 허용 프롬프트 발생 (2026-05-28 실측, SecItemCopyMatching 블로킹). → Setup 화면은 키를 `POST /setup`(loopback)으로 보내고 **Python이 keyring으로 저장**. 추후 코드사이닝+access group 도입 시 직접 공유 재검토 |
 
 ### 공식 kis_auth.py 통합 방식 (yaml monkey-patch)
 

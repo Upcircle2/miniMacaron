@@ -12,6 +12,14 @@ struct ContentView: View {
     @State private var sortMode: SortMode = .eval
 
     var body: some View {
+        if model.setupComplete == false || model.showSetup {
+            SetupView()
+        } else {
+            mainView
+        }
+    }
+
+    private var mainView: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
             marketToggle
@@ -30,12 +38,16 @@ struct ContentView: View {
     // MARK: 상단 토글 / 헤더
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 10) {
             Text("miniMacaron").font(.headline)
             Spacer()
             Button {
                 Task { await model.fetchOnce() }
             } label: { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(.borderless)
+            Button {
+                model.showSetup = true
+            } label: { Image(systemName: "gearshape") }
                 .buttonStyle(.borderless)
         }
     }

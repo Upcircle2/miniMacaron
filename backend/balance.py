@@ -9,11 +9,20 @@
 from __future__ import annotations
 
 import sys
+import threading
 from typing import Literal
 
 import pandas as pd
 
 from backend import auth
+
+# 공식 kis_auth 전역 상태(_base_headers 등)는 스레드 안전하지 않음.
+# FastAPI 스레드풀의 동시 요청이 KIS 호출에서 레이스 나지 않도록 직렬화.
+_KIS_LOCK = threading.Lock()
+
+# KIS rate-limit(EGW00201) 등 일시 오류 시 공식 함수는 빈 DataFrame을 반환한다.
+# 그대로 내보내면 클라이언트가 빈 요약을 받게 되므로, 직전 정상 스냅샷을 재사용.
+_LAST_GOOD: dict[str, dict] = {}
 
 
 def _f(v) -> float:
@@ -41,15 +50,16 @@ def fetch_present_balance(
 
     env_dv = "real" if svr == "prod" else "demo"
 
-    return inquire_present_balance(
-        cano=trenv.my_acct,
-        acnt_prdt_cd=trenv.my_prod,
-        wcrc_frcr_dvsn_cd=wcrc_frcr_dvsn_cd,
-        natn_cd=natn_cd,
-        tr_mket_cd=tr_mket_cd,
-        inqr_dvsn_cd=inqr_dvsn_cd,
-        env_dv=env_dv,
-    )
+    with _KIS_LOCK:
+        return inquire_present_balance(
+            cano=trenv.my_acct,
+            acnt_prdt_cd=trenv.my_prod,
+            wcrc_frcr_dvsn_cd=wcrc_frcr_dvsn_cd,
+            natn_cd=natn_cd,
+            tr_mket_cd=tr_mket_cd,
+            inqr_dvsn_cd=inqr_dvsn_cd,
+            env_dv=env_dv,
+        )
 
 
 def fetch_domestic_balance(
@@ -66,17 +76,18 @@ def fetch_domestic_balance(
 
     env_dv = "real" if svr == "prod" else "demo"
 
-    return inquire_balance(
-        env_dv=env_dv,
-        cano=trenv.my_acct,
-        acnt_prdt_cd=trenv.my_prod,
-        afhr_flpr_yn="N",            # 시간외단일가 미적용
-        inqr_dvsn="02",              # 02: 종목별
-        unpr_dvsn="01",
-        fund_sttl_icld_yn="N",
-        fncg_amt_auto_rdpt_yn="N",
-        prcs_dvsn="00",              # 00: 전일매매 포함
-    )
+    with _KIS_LOCK:
+        return inquire_balance(
+            env_dv=env_dv,
+            cano=trenv.my_acct,
+            acnt_prdt_cd=trenv.my_prod,
+            afhr_flpr_yn="N",            # 시간외단일가 미적용
+            inqr_dvsn="02",              # 02: 종목별
+            unpr_dvsn="01",
+            fund_sttl_icld_yn="N",
+            fncg_amt_auto_rdpt_yn="N",
+            prcs_dvsn="00",              # 00: 전일매매 포함
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -118,7 +129,13 @@ def overseas_snapshot(svr: Literal["prod", "vps"] = "prod") -> dict:
         }
 
     exrt = _f(df1.iloc[0]["bass_exrt"]) if not df1.empty else 0.0
-    return {"exrt": exrt, "summary": summary, "holdings": holdings}
+    result = {"exrt": exrt, "summary": summary, "holdings": holdings}
+
+    # 요약이 비면 KIS 일시 오류(rate-limit 등) → 직전 정상 스냅샷 재사용
+    if not summary:
+        return _LAST_GOOD.get("overseas", result)
+    _LAST_GOOD["overseas"] = result
+    return result
 
 
 def domestic_snapshot(svr: Literal["prod", "vps"] = "prod") -> dict:
@@ -149,4 +166,10 @@ def domestic_snapshot(svr: Literal["prod", "vps"] = "prod") -> dict:
             "dnca_krw": _f(s.get("dnca_tot_amt")),
         }
 
-    return {"summary": summary, "holdings": holdings}
+    result = {"summary": summary, "holdings": holdings}
+
+    # 국내는 보유 0이어도 요약(df2)이 채워짐 → 요약이 비면 KIS 일시 오류로 간주
+    if not summary:
+        return _LAST_GOOD.get("domestic", result)
+    _LAST_GOOD["domestic"] = result
+    return result
