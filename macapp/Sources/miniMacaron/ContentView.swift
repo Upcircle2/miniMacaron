@@ -34,7 +34,7 @@ struct ContentView: View {
             footer
         }
         .padding(12)
-        .frame(width: 384)
+        .frame(width: 452)
         .forceArrowCursor()
     }
 
@@ -89,6 +89,7 @@ struct ContentView: View {
             grid(sortedOverseas(snap.holdings)) { h in
                 rowCells(
                     symbol: h.symbol,
+                    pl: showKRW ? signedKRW(h.pl_usd * snap.exrt) : signedUSD(h.pl_usd),
                     cur: showKRW ? "₩\(won(h.cur * snap.exrt))" : String(format: "$%.2f", h.cur),
                     value: showKRW ? "₩\(won(h.eval_usd * snap.exrt))" : "$\(won(h.eval_usd))",
                     rate: h.pl_rate, gain: h.pl_usd >= 0)
@@ -129,8 +130,12 @@ struct ContentView: View {
                 sortBar
                 columnHeader(valueLabel: "평가₩")
                 grid(sortedDomestic(snap.holdings)) { h in
-                    rowCells(symbol: h.symbol, cur: "₩\(won(h.cur))",
-                             value: "₩\(won(h.eval_krw))", rate: h.pl_rate, gain: h.pl_krw >= 0)
+                    rowCells(
+                        symbol: h.symbol,
+                        pl: signedKRW(h.pl_krw),
+                        cur: "₩\(won(h.cur))",
+                        value: "₩\(won(h.eval_krw))",
+                        rate: h.pl_rate, gain: h.pl_krw >= 0)
                 }
             }
         } else {
@@ -182,11 +187,12 @@ struct ContentView: View {
 
     private func columnHeader(valueLabel: String) -> some View {
         HStack(spacing: 4) {
-            Text("종목").frame(width: 60, alignment: .leading)
-            Spacer()
-            Text("현재").frame(width: 90, alignment: .trailing)
-            Text(valueLabel).frame(width: 96, alignment: .trailing)
-            Text("손익%").frame(width: 66, alignment: .trailing)
+            Text("종목").frame(width: 52, alignment: .leading)
+            Text("손익").frame(width: 92, alignment: .trailing)
+            Spacer(minLength: 8)
+            Text("현재").frame(width: 80, alignment: .trailing)
+            Text(valueLabel).frame(width: 92, alignment: .trailing)
+            Text("손익%").frame(width: 62, alignment: .trailing)
         }
         .font(.caption2).foregroundStyle(.secondary)
         .padding(.horizontal, 6)
@@ -215,15 +221,17 @@ struct ContentView: View {
         .frame(height: 320)
     }
 
-    private func rowCells(symbol: String, cur: String, value: String,
+    private func rowCells(symbol: String, pl: String, cur: String, value: String,
                           rate: Double, gain: Bool) -> some View {
         HStack(spacing: 4) {
-            Text(symbol).frame(width: 60, alignment: .leading)
-            Spacer()
-            Text(cur).frame(width: 90, alignment: .trailing)
-            Text(value).frame(width: 96, alignment: .trailing)
+            Text(symbol).frame(width: 52, alignment: .leading)
+            Text(pl).frame(width: 92, alignment: .trailing)
+                .foregroundStyle(gain ? .green : .red)
+            Spacer(minLength: 8)
+            Text(cur).frame(width: 80, alignment: .trailing)
+            Text(value).frame(width: 92, alignment: .trailing)
             Text(pct(rate))
-                .frame(width: 66, alignment: .trailing)
+                .frame(width: 62, alignment: .trailing)
                 .foregroundStyle(gain ? .green : .red)
         }
         .font(.system(.body, design: .monospaced))
@@ -249,6 +257,12 @@ struct ContentView: View {
     }
     private func pct(_ v: Double) -> String {
         String(format: "%+.2f%%", v)
+    }
+    private func signedUSD(_ v: Double) -> String {
+        (v < 0 ? "-$" : "+$") + won(abs(v))
+    }
+    private func signedKRW(_ v: Double) -> String {
+        (v < 0 ? "-₩" : "+₩") + won(abs(v))
     }
 }
 
