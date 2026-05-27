@@ -1,6 +1,7 @@
 import Foundation
 
-/// /balance/overseas 응답과 1:1 매핑 (JSON 키 = 프로퍼티명).
+// MARK: 해외 (/balance/overseas)
+
 struct OverseasSnapshot: Codable {
     let exrt: Double
     let summary: Summary
@@ -22,8 +23,36 @@ struct Holding: Codable, Identifiable {
     let qty: Double
     let avg: Double
     let cur: Double
+    let pchs_usd: Double
     let eval_usd: Double
     let pl_usd: Double
     let pl_rate: Double
     let excg: String
+}
+
+// MARK: 국내 (/balance/domestic)
+
+struct DomesticSnapshot: Codable {
+    let summary: DomesticSummary
+    let holdings: [DomesticHolding]
+}
+
+struct DomesticSummary: Codable {
+    let tot_eval_krw: Double
+    let nass_krw: Double
+    let eval_pl_krw: Double
+    let pchs_krw: Double
+    let dnca_krw: Double
+}
+
+struct DomesticHolding: Codable, Identifiable {
+    var id: String { symbol }
+    let symbol: String
+    let name: String
+    let qty: Double
+    let avg: Double
+    let cur: Double
+    let eval_krw: Double
+    let pl_krw: Double
+    let pl_rate: Double
 }
