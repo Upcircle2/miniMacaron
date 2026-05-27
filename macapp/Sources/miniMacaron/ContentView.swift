@@ -221,9 +221,9 @@ struct ContentView: View {
                 GridRow {
                     Text("종목").gridColumnAlignment(.leading)
                     Text("손익")
+                    Text("손익%")
                     Text("현재")
                     Text(valueLabel)
-                    Text("손익%")
                 }
                 .font(.caption2).foregroundStyle(.secondary)
                 .padding(.vertical, 5)
@@ -234,9 +234,9 @@ struct ContentView: View {
                     GridRow {
                         Text(r.symbol)
                         Text(r.pl).foregroundStyle(r.gain ? .green : .red)
+                        Text(pct(r.rate)).foregroundStyle(r.gain ? .green : .red)
                         Text(r.cur)
                         Text(r.value)
-                        Text(pct(r.rate)).foregroundStyle(r.gain ? .green : .red)
                     }
                     .font(.system(.body, design: .monospaced))
                     .lineLimit(1)
@@ -260,14 +260,24 @@ struct ContentView: View {
     // MARK: 기타
 
     private var placeholder: some View {
-        Text(model.status)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, minHeight: 320)
+        VStack(spacing: 8) {
+            if model.connected {
+                ProgressView().controlSize(.small)
+                Text("불러오는 중…")
+            } else {
+                Image(systemName: "wifi.exclamationmark").font(.title2)
+                Text("백엔드에 연결할 수 없습니다\nrun_api.py 실행 중인지 확인")
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, minHeight: 320)
     }
 
     private var footer: some View {
         HStack {
-            Text(model.status).font(.caption).foregroundStyle(.secondary)
+            Text(model.statusText).font(.caption)
+                .foregroundStyle(model.connected ? Color.secondary : Color.red)
             Spacer()
             Button("종료") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless)

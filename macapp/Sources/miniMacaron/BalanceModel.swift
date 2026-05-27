@@ -14,12 +14,21 @@ final class BalanceModel: ObservableObject {
     }
     @Published var overseas: OverseasSnapshot?
     @Published var domestic: DomesticSnapshot?
-    @Published var status: String = "연결 중…"
+    @Published var connected = true            // 연속 실패 누적 시에만 false
+    @Published var lastUpdate: Date?
     @Published var setupComplete: Bool? = nil  // nil = 확인 중/백엔드 다운
     @Published var showSetup = false            // 사용자가 직접 연 경우
 
     private let base = "http://127.0.0.1:8000"
     private var started = false
+    private var failStreak = 0
+
+    /// 푸터/플레이스홀더 표시 문구 — 단발성 실패는 숨기고 누적 실패만 노출.
+    var statusText: String {
+        if !connected { return "백엔드 연결 끊김 — run_api.py 확인" }
+        if let t = lastUpdate { return "갱신 " + t.formatted(date: .omitted, time: .standard) }
+        return "불러오는 중…"
+    }
 
     func start() {
         guard !started else { return }
@@ -90,14 +99,21 @@ final class BalanceModel: ObservableObject {
         do {
             let (data, resp) = try await URLSession.shared.data(from: url)
             guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
-                status = "백엔드 오류 (서버 응답 비정상)"
-                return
+                registerFailure(); return
             }
             assign(try JSONDecoder().decode(T.self, from: data))
-            status = "갱신: " + Date().formatted(date: .omitted, time: .standard)
+            failStreak = 0
+            connected = true
+            lastUpdate = Date()
         } catch {
-            status = "백엔드 연결 실패 — run_api.py 실행 중인가요?"
+            registerFailure()
         }
+    }
+
+    /// 단발성 실패는 무시하고, 연속 실패(약 2초)가 쌓일 때만 연결 끊김으로 표시.
+    private func registerFailure() {
+        failStreak += 1
+        if failStreak >= 4 { connected = false }
     }
 
     /// 메뉴바 라벨 (선택된 시장 기준).
