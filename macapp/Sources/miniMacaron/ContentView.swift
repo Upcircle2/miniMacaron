@@ -10,6 +10,7 @@ enum SortMode: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @EnvironmentObject var model: BalanceModel
     @State private var sortMode: SortMode = .eval
+    @State private var sortDesc = true  // 내림차순 기본
 
     var body: some View {
         if model.setupComplete == false || model.showSetup {
@@ -74,7 +75,7 @@ struct ContentView: View {
                 Text("평가 ₩\(won(snap.summary.eval_krw)) · 매입 ₩\(won(snap.summary.pchs_krw)) · 환율 \(String(format: "%.1f", snap.exrt))")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            sortPicker
+            sortBar
             columnHeader(valueLabel: "평가$")
             grid(sortedOverseas(snap.holdings)) { h in
                 rowCells(symbol: h.symbol, cur: String(format: "$%.2f", h.cur),
@@ -86,11 +87,13 @@ struct ContentView: View {
     }
 
     private func sortedOverseas(_ h: [Holding]) -> [Holding] {
+        let key: (Holding) -> Double
         switch sortMode {
-        case .eval: return h.sorted { $0.eval_usd > $1.eval_usd }
-        case .pchs: return h.sorted { $0.pchs_usd > $1.pchs_usd }
-        case .rate: return h.sorted { $0.pl_rate > $1.pl_rate }
+        case .eval: key = { $0.eval_usd }
+        case .pchs: key = { $0.pchs_usd }
+        case .rate: key = { $0.pl_rate }
         }
+        return h.sorted { sortDesc ? key($0) > key($1) : key($0) < key($1) }
     }
 
     // MARK: 국내
@@ -111,7 +114,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 320)
             } else {
-                sortPicker
+                sortBar
                 columnHeader(valueLabel: "평가₩")
                 grid(sortedDomestic(snap.holdings)) { h in
                     rowCells(symbol: h.symbol, cur: "₩\(won(h.cur))",
@@ -124,21 +127,45 @@ struct ContentView: View {
     }
 
     private func sortedDomestic(_ h: [DomesticHolding]) -> [DomesticHolding] {
+        let key: (DomesticHolding) -> Double
         switch sortMode {
-        case .eval: return h.sorted { $0.eval_krw > $1.eval_krw }
-        case .pchs: return h.sorted { $0.qty * $0.avg > $1.qty * $1.avg }
-        case .rate: return h.sorted { $0.pl_rate > $1.pl_rate }
+        case .eval: key = { $0.eval_krw }
+        case .pchs: key = { $0.qty * $0.avg }
+        case .rate: key = { $0.pl_rate }
         }
+        return h.sorted { sortDesc ? key($0) > key($1) : key($0) < key($1) }
     }
 
     // MARK: 공통 컴포넌트
 
-    private var sortPicker: some View {
-        Picker("정렬", selection: $sortMode) {
-            ForEach(SortMode.allCases) { Text($0.rawValue).tag($0) }
+    private var sortBar: some View {
+        HStack(spacing: 6) {
+            ForEach(SortMode.allCases) { mode in
+                Button {
+                    if sortMode == mode {
+                        sortDesc.toggle()          // 같은 탭 재클릭 → 방향 전환
+                    } else {
+                        sortMode = mode            // 다른 탭 → 전환(내림차순부터)
+                        sortDesc = true
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(mode.rawValue)
+                        if sortMode == mode {
+                            Image(systemName: sortDesc ? "arrow.down" : "arrow.up")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                    .background(sortMode == mode ? Color.accentColor.opacity(0.25)
+                                                 : Color.primary.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
+        .font(.caption)
     }
 
     private func columnHeader(valueLabel: String) -> some View {
