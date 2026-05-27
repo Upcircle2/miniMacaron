@@ -34,6 +34,7 @@ struct ContentView: View {
         }
         .padding(12)
         .frame(width: 384)
+        .forceArrowCursor()
     }
 
     // MARK: 상단 토글 / 헤더
@@ -237,5 +238,14 @@ struct ContentView: View {
     }
     private func pct(_ v: Double) -> String {
         String(format: "%+.2f%%", v)
+    }
+}
+
+extension View {
+    /// 포인터가 손가락 등으로 바뀌지 않고 항상 화살표를 유지하도록 강제.
+    func forceArrowCursor() -> some View {
+        onContinuousHover { phase in
+            if case .active = phase { NSCursor.arrow.set() }
+        }
     }
 }
