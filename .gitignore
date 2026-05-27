@@ -1,0 +1,60 @@
+# === SECRETS — 절대 커밋 금지 ===
+kis_devlp.yaml
+*.token
+KIS20*
+KIS[0-9]*
+.env
+.env.*
+config/
+secrets/
+
+# === 공식 KIS repo (각자 클론) ===
+vendor/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# === uv ===
+.uv-cache/
+uv.lock
+
+# === Swift / Xcode ===
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.xcscmblueprint
+xcuserdata/
+.swiftpm/
+.build/
+build/
+Packages/
+
+# === macOS ===
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === Claude Code (로컬 개인 설정) ===
+.claude/settings.local.json
+
+# === 로그 ===
+*.log
+logs/

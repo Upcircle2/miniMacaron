@@ -1,0 +1,18 @@
+[project]
+name = "minimacaron"
+version = "0.1.0"
+description = "한국투자증권 잔고 실시간 모니터링 — macOS 메뉴바 앱 (MacaronHTS 후속 비공식 도구)"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "pyyaml>=6.0",
+    "websockets>=12.0",
+    "pycryptodome>=3.19",
+    "pandas>=2.0",
+    "keyring>=24.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[tool.uv]
+package = false
