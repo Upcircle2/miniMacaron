@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
@@ -158,13 +159,33 @@ def _patched_yaml_load(cfg_dict: dict):
         yaml.load = original
 
 
-def bootstrap(svr: Literal["prod", "vps"] = "prod"):
-    """
-    Keychain → monkey patch → 공식 kis_auth import → OAuth.
+# bootstrap 1회 캐시 — 매 요청마다 재실행하면 전역 yaml monkey-patch / auth_ws 가
+# FastAPI 스레드풀 동시요청에서 레이스를 일으킴. 1회만 수행하고 (ka, trenv) 재사용.
+_BOOTSTRAP_LOCK = threading.Lock()
+_BOOTSTRAP_CACHE: dict[str, tuple] = {}
 
-    Returns:
-        (ka 모듈, trenv namedtuple)
+
+def reset_bootstrap() -> None:
+    """키 변경(POST /setup) 후 캐시 무효화 — 다음 bootstrap 이 새 키로 재인증."""
+    with _BOOTSTRAP_LOCK:
+        _BOOTSTRAP_CACHE.clear()
+
+
+def bootstrap(svr: Literal["prod", "vps"] = "prod"):
+    """Keychain → kis_auth OAuth. 1회 캐시 후 (ka, trenv) 재사용.
+
+    토큰 만료는 kis_auth 내부 reAuth(_getBaseHeader)가 호출 시점에 자동 처리.
     """
+    with _BOOTSTRAP_LOCK:
+        if svr in _BOOTSTRAP_CACHE:
+            return _BOOTSTRAP_CACHE[svr]
+        result = _do_bootstrap(svr)
+        _BOOTSTRAP_CACHE[svr] = result
+        return result
+
+
+def _do_bootstrap(svr: Literal["prod", "vps"] = "prod"):
+    """실제 부트스트랩 (캐시 미스 시 1회)."""
     if not KIS_PATH.exists():
         raise RuntimeError(
             f"공식 KIS repo가 없습니다: {KIS_PATH}\n"

@@ -15,6 +15,8 @@ final class BalanceModel: ObservableObject {
     @Published var overseas: OverseasSnapshot?
     @Published var domestic: DomesticSnapshot?
     @Published var status: String = "연결 중…"
+    @Published var setupComplete: Bool? = nil  // nil = 확인 중/백엔드 다운
+    @Published var showSetup = false            // 사용자가 직접 연 경우
 
     private let base = "http://127.0.0.1:8000"
     private var started = false
@@ -22,14 +24,57 @@ final class BalanceModel: ObservableObject {
     func start() {
         guard !started else { return }
         started = true
-        Task { await pollLoop() }
+        Task {
+            await checkHealth()
+            await pollLoop()
+        }
+    }
+
+    func checkHealth() async {
+        guard let url = URL(string: base + "/health") else { return }
+        do {
+            let (data, resp) = try await URLSession.shared.data(from: url)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let complete = obj["setup_complete"] as? Bool else { return }
+            setupComplete = complete
+        } catch {
+            setupComplete = nil  // 백엔드 미기동
+        }
+    }
+
+    /// Setup 화면에서 입력한 실전 키 4종을 백엔드로 전송 → keyring 저장.
+    func submitSetup(appKey: String, appSecret: String, htsId: String, accountNo: String) async -> Bool {
+        guard let url = URL(string: base + "/setup") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = ["app_key": appKey, "app_secret": appSecret,
+                    "hts_id": htsId, "account_no": accountNo]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let ok = obj["setup_complete"] as? Bool else { return false }
+            setupComplete = ok
+            return ok
+        } catch {
+            return false
+        }
     }
 
     private func pollLoop() async {
-        // 실전 REST 한도 ~20건/초. 0.5초 폴링 = 2건/초로 한도 대비 충분한 여유.
+        // 고정 주기 0.5초: "이전 시작 + 0.5초"가 되도록 fetch 소요시간을 차감.
+        // (fetch 후 0.5초를 자면 실제 간격 = 지연 + 0.5초 ≈ 1초가 되던 버그 수정)
+        let interval = 0.5
         while !Task.isCancelled {
+            let start = Date()
             await fetchOnce()
-            try? await Task.sleep(for: .milliseconds(500))
+            let remaining = interval - Date().timeIntervalSince(start)
+            if remaining > 0 {
+                try? await Task.sleep(for: .seconds(remaining))
+            }
         }
     }
 

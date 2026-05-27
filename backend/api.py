@@ -12,6 +12,7 @@ READ-ONLY: 잔고 조회만 노출. 주문 엔드포인트 없음.
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
 from backend import auth, balance
 
@@ -21,6 +22,28 @@ app = FastAPI(title="miniMacaron", version="0.1.0")
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "setup_complete": auth.is_setup_complete()}
+
+
+class SetupKeys(BaseModel):
+    app_key: str
+    app_secret: str
+    hts_id: str
+    account_no: str
+
+
+@app.post("/setup")
+def setup(keys: SetupKeys) -> dict:
+    """실전 필수 키 4종을 Keychain에 저장 (Python keyring = Keychain 단일 소유자).
+
+    키는 loopback(127.0.0.1)으로만 수신. 모의(paper) 키는 실전-only 정책상 받지 않음.
+    """
+    for field in ("app_key", "app_secret", "hts_id", "account_no"):
+        value = getattr(keys, field).strip()
+        if not value:
+            raise HTTPException(status_code=422, detail=f"{field} 비어있음")
+        auth.set_credential(field, value)
+    auth.reset_bootstrap()  # 새 키로 재인증되도록 캐시 무효화
+    return {"ok": True, "setup_complete": auth.is_setup_complete()}
 
 
 def _snapshot(fn) -> dict:
