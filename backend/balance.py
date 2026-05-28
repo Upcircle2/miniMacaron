@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
+from contextlib import contextmanager
 from typing import Literal
 
 import pandas as pd
@@ -19,6 +21,23 @@ from backend import auth
 # 공식 kis_auth 전역 상태(_base_headers 등)는 스레드 안전하지 않음.
 # FastAPI 스레드풀의 동시 요청이 KIS 호출에서 레이스 나지 않도록 직렬화.
 _KIS_LOCK = threading.Lock()
+
+# KIS '초당 거래건수 초과'(EGW00201) 방지 — 호출 간 최소 간격 보장(≤약 4/s, 실효 한도 안전마진).
+_MIN_INTERVAL = 0.25
+_last_call = [0.0]
+
+
+@contextmanager
+def kis_guard():
+    """KIS REST 호출 직렬화 + 최소 호출 간격 보장 (rate-limit 회피)."""
+    with _KIS_LOCK:
+        gap = time.monotonic() - _last_call[0]
+        if gap < _MIN_INTERVAL:
+            time.sleep(_MIN_INTERVAL - gap)
+        try:
+            yield
+        finally:
+            _last_call[0] = time.monotonic()
 
 # KIS rate-limit(EGW00201) 등 일시 오류 시 공식 함수는 빈 DataFrame을 반환한다.
 # 그대로 내보내면 클라이언트가 빈 요약을 받게 되므로, 직전 정상 스냅샷을 재사용.
@@ -50,7 +69,7 @@ def fetch_present_balance(
 
     env_dv = "real" if svr == "prod" else "demo"
 
-    with _KIS_LOCK:
+    with kis_guard():
         return inquire_present_balance(
             cano=trenv.my_acct,
             acnt_prdt_cd=trenv.my_prod,
@@ -76,7 +95,7 @@ def fetch_domestic_balance(
 
     env_dv = "real" if svr == "prod" else "demo"
 
-    with _KIS_LOCK:
+    with kis_guard():
         return inquire_balance(
             env_dv=env_dv,
             cano=trenv.my_acct,
@@ -113,6 +132,13 @@ def overseas_snapshot(svr: Literal["prod", "vps"] = "prod") -> dict:
             "pl_rate": _f(r["evlu_pfls_rt1"]),
             "excg": str(r["item_lnkg_excg_cd"]),
         })
+
+    # 오늘 등락률 = (현재가 − 전일종가)/전일종가 × 100. 전일종가는 캐시(추가 폴링 없음).
+    from backend import quotes  # 지연 import (순환 회피)
+    pcmap = quotes.overseas_prev_close_map([(h["symbol"], h["excg"]) for h in holdings])
+    for h in holdings:
+        pc = pcmap.get(h["symbol"])
+        h["day_rate"] = round((h["cur"] - pc) / pc * 100, 2) if pc else None
 
     summary = {}
     if not df3.empty:
@@ -151,6 +177,13 @@ def domestic_snapshot(svr: Literal["prod", "vps"] = "prod") -> dict:
             "pl_krw": _f(r.get("evlu_pfls_amt")),
             "pl_rate": _f(r.get("evlu_pfls_rt")),
         })
+
+    # 오늘 등락률 (전일종가 배치 캐시 + 현재가로 계산)
+    from backend import quotes  # 지연 import
+    pcmap = quotes.domestic_prev_close_map([h["symbol"] for h in holdings])
+    for h in holdings:
+        pc = pcmap.get(h["symbol"])
+        h["day_rate"] = round((h["cur"] - pc) / pc * 100, 2) if pc else None
 
     summary = {}
     if not df2.empty:
