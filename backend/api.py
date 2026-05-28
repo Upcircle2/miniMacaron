@@ -11,16 +11,28 @@ READ-ONLY: 잔고 조회만 노출. 주문 엔드포인트 없음.
 """
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import hmac
+
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from backend import auth, balance
+from backend import auth, balance, ipc
 
 app = FastAPI(title="miniMacaron", version="0.1.0")
+
+# 백엔드↔앱 공유 IPC 토큰 (무인증 localhost 호출 차단).
+_TOKEN = ipc.get_or_create_token()
+
+
+def require_token(authorization: str = Header(default="")) -> None:
+    """Authorization: Bearer <token> 검증 (타이밍-세이프)."""
+    if not hmac.compare_digest(authorization, f"Bearer {_TOKEN}"):
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 @app.get("/health")
 def health() -> dict:
+    # liveness 용도 — 무인증 유지 (bool 만 노출).
     return {"status": "ok", "setup_complete": auth.is_setup_complete()}
 
 
@@ -31,7 +43,7 @@ class SetupKeys(BaseModel):
     account_no: str
 
 
-@app.post("/setup")
+@app.post("/setup", dependencies=[Depends(require_token)])
 def setup(keys: SetupKeys) -> dict:
     """실전 필수 키 4종을 Keychain에 저장 (Python keyring = Keychain 단일 소유자).
 
@@ -55,11 +67,11 @@ def _snapshot(fn) -> dict:
         raise HTTPException(status_code=502, detail=f"{type(e).__name__}: {e}")
 
 
-@app.get("/balance/overseas")
+@app.get("/balance/overseas", dependencies=[Depends(require_token)])
 def balance_overseas() -> dict:
     return _snapshot(balance.overseas_snapshot)
 
 
-@app.get("/balance/domestic")
+@app.get("/balance/domestic", dependencies=[Depends(require_token)])
 def balance_domestic() -> dict:
     return _snapshot(balance.domestic_snapshot)

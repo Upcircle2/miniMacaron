@@ -106,10 +106,14 @@ uv run python scripts/verify_auth.py
 |---|---|---|
 | App Key / Secret / HTS ID / 계좌번호 | macOS Keychain | OS-level AES 암호화, Touch ID 연동 가능 |
 | OAuth 토큰 (1일 캐시) | `~/KIS/config/KIS{YYYYMMDD}` | chmod 600 + 디렉토리 chmod 700 |
+| 백엔드 API | `127.0.0.1:8000` (외부 비노출) | 랜덤 토큰 인증 + CORS 없음 |
 | `kis_devlp.yaml` | **사용 안 함** (공식 코드 호환용 빈 파일만 존재) | chmod 600 |
 
+보안에 신경 쓴 점:
+- **키는 Keychain에만** — 저장소·디스크 평문·API 응답 어디에도 키가 나타나지 않음 (키를 반환하는 엔드포인트 없음)
+- **로컬 백엔드 토큰 인증** — `127.0.0.1` 바인딩 + 공유 토큰(chmod 600)으로 다른 로컬 프로세스의 무인증 접근 차단, CORS 없음으로 브라우저 경로도 차단
+- **READ-ONLY 전용** — 주문/매매 API 일체 import·호출 안 함. (참고: KIS OpenAPI엔 출금/이체 API 자체가 없어 키 유출 시에도 현금 인출은 불가)
 - APP Key/Secret은 **본인 계좌와 1:1 결합** — 절대 타인에게 공유 금지
-- 본 프로젝트는 **READ-ONLY 잔고 조회 전용** — 주문/매매 API 일체 호출 안 함
 - 의심스러운 유출 시 즉시 KIS 포털에서 키 재발급 + `scripts/clear_keys.py`로 Keychain 정리
 
 ## 프로젝트 구조
