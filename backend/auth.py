@@ -172,16 +172,35 @@ def reset_bootstrap() -> None:
 
 
 def bootstrap(svr: Literal["prod", "vps"] = "prod"):
-    """Keychain → kis_auth OAuth. 1회 캐시 후 (ka, trenv) 재사용.
+    """Keychain → kis_auth OAuth. import/monkey-patch 는 1회, 토큰은 매 호출 재검증.
 
-    토큰 만료는 kis_auth 내부 reAuth(_getBaseHeader)가 호출 시점에 자동 처리.
+    캐시 히트 시 ka.auth() 로 토큰을 재검증한다(유효하면 캐시 재사용, 만료(EGW00123)면 재발급).
+    kis_auth.reAuth 는 _last_auth_time 24h 기준이라 '캐시된 오래된 토큰'엔 안 맞아 직접 갱신.
     """
     with _BOOTSTRAP_LOCK:
         if svr in _BOOTSTRAP_CACHE:
+            ka, _ = _BOOTSTRAP_CACHE[svr]
+            _refresh_token(ka, svr)
+            _BOOTSTRAP_CACHE[svr] = (ka, ka.getTREnv())
             return _BOOTSTRAP_CACHE[svr]
         result = _do_bootstrap(svr)
         _BOOTSTRAP_CACHE[svr] = result
         return result
+
+
+def _patch_trenv_token(ka) -> None:
+    """upstream kis_auth 버그 우회: changeTREnv 가 TRENV.my_token 을 빈 값으로 두는 문제
+    (kis_auth.py:179). 캐시에서 실제 토큰을 읽어 namedtuple 교체."""
+    if not ka.getTREnv().my_token:
+        tok = ka.read_token()
+        if tok:
+            ka._TRENV = ka.getTREnv()._replace(my_token=tok)
+
+
+def _refresh_token(ka, svr: str) -> None:
+    """토큰 재검증 — ka.auth() 가 토큰 캐시 valid-date 를 확인해 유효 시 재사용, 만료 시 재발급."""
+    ka.auth(svr=svr, product="01")
+    _patch_trenv_token(ka)
 
 
 def _do_bootstrap(svr: Literal["prod", "vps"] = "prod"):
@@ -204,16 +223,7 @@ def _do_bootstrap(svr: Literal["prod", "vps"] = "prod"):
 
     ka.auth(svr=svr, product="01")
     ka.auth_ws(svr=svr, product="01")
-
-    # upstream kis_auth 버그 우회 (파일 수정 금지 → 인메모리 패치):
-    # changeTREnv() 가 새로 발급된 토큰 대신 직전(빈) 토큰을 TRENV에 넣음
-    #   (kis_auth.py:179  `cfg["my_token"] = my_token if token_key else token_key`).
-    # HTTP 헤더(_base_headers)는 정상 토큰이라 API 호출은 되지만, TRENV.my_token 만 빈 값.
-    # 캐시에서 실제 토큰을 읽어 namedtuple 을 교체.
-    if not ka.getTREnv().my_token:
-        tok = ka.read_token()
-        if tok:
-            ka._TRENV = ka.getTREnv()._replace(my_token=tok)
+    _patch_trenv_token(ka)  # upstream changeTREnv 버그 우회 (kis_auth.py:179)
 
     # 토큰 캐시 파일도 chmod 600
     from datetime import datetime
