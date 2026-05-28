@@ -11,6 +11,7 @@ enum SortMode: String, CaseIterable, Identifiable {
 fileprivate struct RowItem: Identifiable {
     let id: String
     let symbol: String
+    let name: String
     let pl: String
     let cur: String
     let value: String
@@ -34,7 +35,8 @@ struct ContentView: View {
 
     /// 표시 통화에 따라 팝오버 가로폭 가변 (₩ 큰 숫자 = 더 넓게).
     private var popoverWidth: CGFloat {
-        (model.market == .domestic || showKRW) ? 560 : 470
+        // 종목 셀에 기업명(최대 120pt)이 추가돼 폭을 더 확보.
+        (model.market == .domestic || showKRW) ? 620 : 540
     }
 
     private var mainView: some View {
@@ -113,6 +115,7 @@ struct ContentView: View {
             RowItem(
                 id: h.symbol,
                 symbol: h.symbol,
+                name: h.name,
                 pl: showKRW ? signedKRW(h.pl_usd * snap.exrt) : signedUSD(h.pl_usd),
                 cur: showKRW ? "₩\(won(h.cur * snap.exrt))" : String(format: "$%.2f", h.cur),
                 value: showKRW ? "₩\(won(h.eval_usd * snap.exrt))" : "$\(won(h.eval_usd))",
@@ -137,7 +140,7 @@ struct ContentView: View {
     @ViewBuilder private var domesticSection: some View {
         if let snap = model.domestic {
             VStack(alignment: .leading, spacing: 2) {
-                Text("총평가  ₩\(won(snap.summary.tot_eval_krw))").font(.title3.bold())
+                Text("총 자산  ₩\(won(snap.summary.tot_eval_krw))").font(.title3.bold())
                 Text("평가손익 ₩\(won(snap.summary.eval_pl_krw))")
                     .foregroundStyle(snap.summary.eval_pl_krw >= 0 ? .green : .red)
                 Text("순자산 ₩\(won(snap.summary.nass_krw)) · 예수금 ₩\(won(snap.summary.dnca_krw))")
@@ -162,6 +165,7 @@ struct ContentView: View {
             RowItem(
                 id: h.symbol,
                 symbol: h.symbol,
+                name: h.name,
                 pl: signedKRW(h.pl_krw),
                 cur: "₩\(won(h.cur))",
                 value: "₩\(won(h.eval_krw))",
@@ -232,14 +236,20 @@ struct ContentView: View {
 
                 ForEach(rows) { r in
                     GridRow {
-                        Text(r.symbol)
-                        Text(r.pl).foregroundStyle(r.gain ? .green : .red)
-                        Text(pct(r.rate)).foregroundStyle(r.gain ? .green : .red)
-                        Text(r.cur)
-                        Text(r.value)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(r.symbol)
+                            Text(r.name)
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: 120, alignment: .leading)
+                        Text(r.pl).foregroundStyle(r.gain ? .green : .red).lineLimit(1)
+                        Text(pct(r.rate)).foregroundStyle(r.gain ? .green : .red).lineLimit(1)
+                        Text(r.cur).lineLimit(1)
+                        Text(r.value).lineLimit(1)
                     }
                     .font(.system(.body, design: .monospaced))
-                    .lineLimit(1)
                     .padding(.vertical, 4)
 
                     if r.id != rows.last?.id {
