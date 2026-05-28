@@ -147,7 +147,7 @@ struct ContentView: View {
             if snap.holdings.isEmpty {
                 Text("국내 보유 종목 없음")
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 320)
+                    .frame(maxWidth: .infinity, minHeight: 480)
             } else {
                 sortBar
                 tableView(valueLabel: "평가₩", rows: domesticRows(snap))
@@ -250,7 +250,7 @@ struct ContentView: View {
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: 320)
+        .frame(height: 480)
         .overlay(
             RoundedRectangle(cornerRadius: 4)
                 .stroke(Color.primary.opacity(0.12), lineWidth: 1)
@@ -271,7 +271,7 @@ struct ContentView: View {
             }
         }
         .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, minHeight: 320)
+        .frame(maxWidth: .infinity, minHeight: 480)
     }
 
     private var footer: some View {

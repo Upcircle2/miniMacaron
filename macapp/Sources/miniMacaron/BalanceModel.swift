@@ -116,22 +116,25 @@ final class BalanceModel: ObservableObject {
         if failStreak >= 4 { connected = false }
     }
 
-    /// 메뉴바 라벨 (선택된 시장 기준).
+    /// 메뉴바 라벨 (선택된 시장 기준) — 정확한 총액 + 평가손익 + 수익률.
     var menuTitle: String {
         switch market {
         case .overseas:
             guard let s = overseas?.summary else { return "miniMacaron" }
-            return label(totalKRW: s.tot_asset_krw, rate: s.eval_rate)
+            return label(total: s.tot_asset_krw, pl: s.eval_pl_krw, rate: s.eval_rate)
         case .domestic:
             guard let s = domestic?.summary else { return "miniMacaron" }
             let rate = s.pchs_krw > 0 ? s.eval_pl_krw / s.pchs_krw * 100 : 0
-            return label(totalKRW: s.tot_eval_krw, rate: rate)
+            return label(total: s.tot_eval_krw, pl: s.eval_pl_krw, rate: rate)
         }
     }
 
-    private func label(totalKRW: Double, rate: Double) -> String {
-        let m = totalKRW / 1_000_000
-        let arrow = rate >= 0 ? "▲" : "▼"
-        return String(format: "₩%.1fM %@%.2f%%", m, arrow, abs(rate))
+    private func label(total: Double, pl: Double, rate: Double) -> String {
+        let arrow = pl >= 0 ? "▲" : "▼"
+        return "₩\(grouped(total))  \(arrow)₩\(grouped(abs(pl))) (\(String(format: "%.2f", abs(rate)))%)"
+    }
+
+    private func grouped(_ v: Double) -> String {
+        v.formatted(.number.precision(.fractionLength(0)))
     }
 }
