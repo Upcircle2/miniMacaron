@@ -149,11 +149,12 @@ miniMacaron/
 ## 개발 로드맵
 
 - [x] Phase 1: 환경 셋업 + Keychain 인증
-- [ ] Phase 2: REST 잔고 조회 (inquire_present_balance)
-- [ ] Phase 3: WebSocket 실시간 체결가 (delayed_ccnl)
-- [ ] Phase 4: FastAPI 백엔드 (REST + WebSocket relay)
-- [ ] Phase 5: SwiftUI macOS 메뉴바 앱 (Setup 화면 포함)
-- [ ] Phase 6: 환손익 분해 / 다크모드 / launchd 데몬화 / .dmg 패키징
+- [x] Phase 2: REST 잔고 조회 (해외 inquire_present_balance / 국내 inquire_balance)
+- [x] Phase 3: WebSocket 지연체결가 모듈 (delayed_ccnl) — 무료 3종목 캡 확인, 앱은 0.5초 REST 폴링 채택
+- [x] Phase 4: FastAPI 백엔드 (localhost:8000, 토큰 인증)
+- [x] Phase 5: SwiftUI macOS 메뉴바 앱 (Setup 온보딩 위저드 포함)
+
+추가 완료: 국내/해외 토글 · 정렬(오름/내림) · 종목 기업명 · 손익 금액·통화($/₩) 전환 · 오늘 등락률(전일종가 대비, 0.5초) · localhost 토큰 인증 · 커밋 이메일 noreply 정리
 
 ## 라이선스 / 면책
 
