@@ -17,6 +17,7 @@ fileprivate struct RowItem: Identifiable {
     let value: String
     let rate: Double
     let gain: Bool
+    let dayRate: Double?   // 전일 종가 대비 등락률
 }
 
 struct ContentView: View {
@@ -120,7 +121,8 @@ struct ContentView: View {
                 cur: showKRW ? "₩\(won(h.cur * snap.exrt))" : String(format: "$%.2f", h.cur),
                 value: showKRW ? "₩\(won(h.eval_usd * snap.exrt))" : "$\(won(h.eval_usd))",
                 rate: h.pl_rate,
-                gain: h.pl_usd >= 0
+                gain: h.pl_usd >= 0,
+                dayRate: h.day_rate
             )
         }
     }
@@ -170,7 +172,8 @@ struct ContentView: View {
                 cur: "₩\(won(h.cur))",
                 value: "₩\(won(h.eval_krw))",
                 rate: h.pl_rate,
-                gain: h.pl_krw >= 0
+                gain: h.pl_krw >= 0,
+                dayRate: h.day_rate
             )
         }
     }
@@ -237,13 +240,20 @@ struct ContentView: View {
                 ForEach(rows) { r in
                     GridRow {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(r.symbol)
+                            HStack(spacing: 4) {
+                                Text(r.symbol)
+                                if let d = r.dayRate {
+                                    Text(String(format: "%+.2f%%", d))
+                                        .font(.caption2)
+                                        .foregroundStyle(d >= 0 ? .green : .red)
+                                }
+                            }
                             Text(r.name)
                                 .font(.caption2).foregroundStyle(.secondary)
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        .frame(maxWidth: 120, alignment: .leading)
+                        .frame(maxWidth: 140, alignment: .leading)
                         Text(r.pl).foregroundStyle(r.gain ? .green : .red).lineLimit(1)
                         Text(pct(r.rate)).foregroundStyle(r.gain ? .green : .red).lineLimit(1)
                         Text(r.cur).lineLimit(1)

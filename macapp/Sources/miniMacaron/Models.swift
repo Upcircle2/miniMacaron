@@ -28,6 +28,7 @@ struct Holding: Codable, Identifiable {
     let pl_usd: Double
     let pl_rate: Double
     let excg: String
+    let day_rate: Double?   // 전일 종가 대비 등락률 (null=아직 미수신)
 }
 
 // MARK: 국내 (/balance/domestic)
@@ -55,4 +56,5 @@ struct DomesticHolding: Codable, Identifiable {
     let eval_krw: Double
     let pl_krw: Double
     let pl_rate: Double
+    let day_rate: Double?   // 전일 종가 대비 등락률 (null=아직 미수신)
 }
