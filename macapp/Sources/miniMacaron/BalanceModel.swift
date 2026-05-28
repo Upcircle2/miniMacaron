@@ -23,6 +23,23 @@ final class BalanceModel: ObservableObject {
     private var started = false
     private var failStreak = 0
 
+    /// 백엔드와 공유하는 IPC 토큰 (앱 지원 폴더의 파일에서 읽음).
+    private func ipcToken() -> String? {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/miniMacaron/ipc.token")
+        return (try? String(contentsOf: url, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 토큰 헤더가 붙은 GET 요청.
+    private func authorizedRequest(_ url: URL) -> URLRequest {
+        var req = URLRequest(url: url)
+        if let t = ipcToken() {
+            req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization")
+        }
+        return req
+    }
+
     /// 푸터/플레이스홀더 표시 문구 — 단발성 실패는 숨기고 누적 실패만 노출.
     var statusText: String {
         if !connected { return "백엔드 연결 끊김 — run_api.py 확인" }
@@ -42,7 +59,7 @@ final class BalanceModel: ObservableObject {
     func checkHealth() async {
         guard let url = URL(string: base + "/health") else { return }
         do {
-            let (data, resp) = try await URLSession.shared.data(from: url)
+            let (data, resp) = try await URLSession.shared.data(for: authorizedRequest(url))
             guard (resp as? HTTPURLResponse)?.statusCode == 200,
                   let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let complete = obj["setup_complete"] as? Bool else { return }
@@ -58,6 +75,9 @@ final class BalanceModel: ObservableObject {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let t = ipcToken() {
+            req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization")
+        }
         let body = ["app_key": appKey, "app_secret": appSecret,
                     "hts_id": htsId, "account_no": accountNo]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -97,7 +117,7 @@ final class BalanceModel: ObservableObject {
     private func fetch<T: Decodable>(_ path: String, _ type: T.Type, assign: (T) -> Void) async {
         guard let url = URL(string: base + path) else { return }
         do {
-            let (data, resp) = try await URLSession.shared.data(from: url)
+            let (data, resp) = try await URLSession.shared.data(for: authorizedRequest(url))
             guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
                 registerFailure(); return
             }
