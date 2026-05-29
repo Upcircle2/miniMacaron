@@ -38,7 +38,9 @@ _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
 
 # 표시 대상. chart=(Nasdaq.com sym, assetclass) → 스파크 모양 / cnbc → 표시 숫자 / stooq → 값 폴백
 _CASH = [
-    {"name": "나스닥", "sess": _SESS_CASH, "chart": ("COMP", "index"),
+    # 차트는 좌우 일관성 위해 둘 다 ETF(QQQ/SPY) — 지수(COMP)는 Nasdaq.com 장중 데이터가 빈약.
+    # 값은 CNBC 지수 그대로(.IXIC 나스닥종합 / .SPX S&P500). QQQ=나스닥100, 장중 모양 거의 동일.
+    {"name": "나스닥", "sess": _SESS_CASH, "chart": ("QQQ", "etf"),
      "cnbc": ".IXIC", "stooq": "^ndq"},
     {"name": "S&P 500", "sess": _SESS_CASH, "chart": ("SPY", "etf"),
      "cnbc": ".SPX", "stooq": "^spx"},
@@ -75,17 +77,17 @@ def _downsample(xy: list[list[float]]) -> list[list[float]]:
     return [[round(x, 4), round(v, 2)] for x, v in xy]
 
 
-def _map_xy(epoch_pts: list[tuple[float, float]], sess: tuple) -> list[list[float]]:
-    """[(epoch_sec, value)] → [[x(0~1, 세션 시각), value]] (세션 개시=왼쪽 끝)."""
-    tz, o_min, c_min = sess
-    span = max(1, c_min - o_min)
-    out = []
-    for t, v in epoch_pts:
-        lt = datetime.fromtimestamp(t, tz)
-        x = (lt.hour * 60 + lt.minute - o_min) / span
-        if 0 <= x <= 1 and v > 0:
-            out.append([x, v])
-    return _downsample(out)
+def _series_xy(epoch_pts: list[tuple[float, float]]) -> list[list[float]]:
+    """[(epoch_sec, value)] → [[x, value]]. 시각 필터 없이 보유 데이터 전부 사용.
+    프론트가 균등 분포로 그리므로 x 는 표시용(인덱스 비율)일 뿐. 값 양수만, 시간순."""
+    pts = sorted((t, v) for t, v in epoch_pts if v and v > 0)
+    vals = [v for _, v in pts]
+    if len(vals) > _SPARK_POINTS:
+        step = len(vals) / _SPARK_POINTS
+        vals = [vals[int(i * step)] for i in range(_SPARK_POINTS)]
+    n = len(vals)
+    return [[round(i / (n - 1), 4) if n > 1 else 0.0, round(v, 2)]
+            for i, v in enumerate(vals)]
 
 
 # ── 백필 소스 (값 + 풀세션 스파크라인) ────────────────────────────────────────
@@ -108,7 +110,7 @@ def _nasdaq(sym: str, ac: str, sess: tuple) -> tuple[float, float, list[list[flo
         price = pts[-1][1]
     if price is None or prev is None:
         raise ValueError("nasdaq.com missing fields")
-    return price, prev, _map_xy(pts, sess)
+    return price, prev, _series_xy(pts)
 
 
 # ── 값 전용 (정확한 지수·선물 숫자) ──────────────────────────────────────────
