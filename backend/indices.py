@@ -31,8 +31,8 @@ _FUT_CLOSE = 22 * 60 + 30       # 선물 표시창 22:30 KST
 _SESS_CASH = (_ET, _OPEN_MIN, _CLOSE_MIN)
 _SESS_FUT = (_KST, _FUT_OPEN, _FUT_CLOSE)
 _SPARK_POINTS = 80
-_TTL = 10
-_SPARK_TTL = 150
+_TTL = 5      # 값(숫자) 캐시 — 5초
+_SPARK_TTL = 60   # 차트(스파크) 캐시 — 60초 (1분봉이라 더 빨라도 새 데이터 없음)
 _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
