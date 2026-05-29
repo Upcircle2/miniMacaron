@@ -152,9 +152,9 @@ def overseas_snapshot(svr: Literal["prod", "vps"] = "prod") -> dict:
         }
 
     exrt = _f(df1.iloc[0]["bass_exrt"]) if not df1.empty else 0.0
-    result = {"exrt": exrt, "summary": summary, "holdings": holdings}
+    result = {"exrt": exrt, "summary": summary, "holdings": holdings, "as_of": time.time()}
 
-    # 요약이 비면 KIS 일시 오류(rate-limit 등) → 직전 정상 스냅샷 재사용
+    # 요약이 비면 KIS 일시 오류(rate-limit 등) → 직전 정상 스냅샷 재사용(as_of 보존 = 신선도 정직)
     if not summary:
         return _LAST_GOOD.get("overseas", result)
     _LAST_GOOD["overseas"] = result
@@ -196,7 +196,7 @@ def domestic_snapshot(svr: Literal["prod", "vps"] = "prod") -> dict:
             "dnca_krw": _f(s.get("dnca_tot_amt")),
         }
 
-    result = {"summary": summary, "holdings": holdings}
+    result = {"summary": summary, "holdings": holdings, "as_of": time.time()}
 
     # 국내는 보유 0이어도 요약(df2)이 채워짐 → 요약이 비면 KIS 일시 오류로 간주
     if not summary:

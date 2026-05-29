@@ -6,6 +6,7 @@ struct OverseasSnapshot: Codable {
     let exrt: Double
     let summary: Summary
     let holdings: [Holding]
+    let as_of: Double?   // 데이터 생성 epoch (신선도 판정용)
 }
 
 struct Summary: Codable {
@@ -36,6 +37,7 @@ struct Holding: Codable, Identifiable {
 struct DomesticSnapshot: Codable {
     let summary: DomesticSummary
     let holdings: [DomesticHolding]
+    let as_of: Double?
 }
 
 struct DomesticSummary: Codable {
