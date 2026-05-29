@@ -17,6 +17,7 @@ final class BalanceModel: ObservableObject {
     @Published var indices: [IndexQuote] = []   // 나스닥·S&P500 미니 위젯
     @Published var connected = true            // 연속 실패 누적 시에만 false
     @Published var lastUpdate: Date?
+    @Published var dataAsOf: Double?           // 서버가 보낸 데이터 생성 epoch (신선도)
     @Published var setupComplete: Bool? = nil  // nil = 확인 중/백엔드 다운
     @Published var showSetup = false            // 사용자가 직접 연 경우
 
@@ -32,18 +33,31 @@ final class BalanceModel: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 토큰 헤더가 붙은 GET 요청.
+    /// 토큰 헤더가 붙은 GET 요청 (행 방지용 8초 타임아웃).
     private func authorizedRequest(_ url: URL) -> URLRequest {
         var req = URLRequest(url: url)
+        req.timeoutInterval = 8
         if let t = ipcToken() {
             req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization")
         }
         return req
     }
 
-    /// 푸터/플레이스홀더 표시 문구 — 단발성 실패는 숨기고 누적 실패만 노출.
+    /// 데이터가 오래됐는지(서버 as_of 기준 90초 초과). KIS 일시장애로 직전값이 반복될 때 true.
+    var isStale: Bool {
+        guard let a = dataAsOf else { return false }
+        return Date().timeIntervalSince1970 - a > 90
+    }
+
+    /// 푸터/플레이스홀더 표시 문구 — 단발성 실패는 숨기고 누적 실패/지연만 노출.
     var statusText: String {
         if !connected { return "백엔드 연결 끊김 — run_api.py 확인" }
+        if isStale, let a = dataAsOf {
+            let age = Int(Date().timeIntervalSince1970 - a)
+            let mins = age / 60
+            let ago = mins > 0 ? "\(mins)분 전" : "\(age)초 전"
+            return "⚠︎ 데이터 지연 — 마지막 \(ago) (KIS 응답 지연)"
+        }
         if let t = lastUpdate { return "갱신 " + t.formatted(date: .omitted, time: .standard) }
         return "불러오는 중…"
     }
@@ -95,6 +109,7 @@ final class BalanceModel: ObservableObject {
         guard let url = URL(string: base + "/setup") else { return false }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
+        req.timeoutInterval = 8
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let t = ipcToken() {
             req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization")
@@ -130,8 +145,14 @@ final class BalanceModel: ObservableObject {
 
     func fetchOnce() async {
         switch market {
-        case .overseas: await fetch("/balance/overseas", OverseasSnapshot.self) { self.overseas = $0 }
-        case .domestic: await fetch("/balance/domestic", DomesticSnapshot.self) { self.domestic = $0 }
+        case .overseas:
+            await fetch("/balance/overseas", OverseasSnapshot.self) {
+                self.overseas = $0; self.dataAsOf = $0.as_of
+            }
+        case .domestic:
+            await fetch("/balance/domestic", DomesticSnapshot.self) {
+                self.domestic = $0; self.dataAsOf = $0.as_of
+            }
         }
     }
 

@@ -301,7 +301,7 @@ struct ContentView: View {
     private var footer: some View {
         HStack {
             Text(model.statusText).font(.caption)
-                .foregroundStyle(model.connected ? Color.secondary : Color.red)
+                .foregroundStyle((!model.connected || model.isStale) ? Color.red : Color.secondary)
             Spacer()
             Button("종료") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless)

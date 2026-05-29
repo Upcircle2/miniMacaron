@@ -12,17 +12,25 @@ from __future__ import annotations
 
 import sys
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from backend import auth
 
-_TTL = 3 * 3600                       # 전일종가는 장중 고정 → 수시간 캐시 (장 롤오버 대비)
+_TTL = 3 * 3600                       # 전일종가는 장중 고정 → 수시간 캐시
 _MAX_FILL_PER_CALL = 1               # 해외: 스냅샷당 신규 조회 1개 (가장 완만 — 램프 EGW 최소화)
-_prev_close: dict[str, tuple[float, float]] = {}   # symbol -> (ts, prev_close)
+_ET = ZoneInfo("America/New_York")
+# symbol -> (ts, prev_close, et_date) — ET 날짜가 바뀌면(새 거래일) 무효화해 baseline 갱신
+_prev_close: dict[str, tuple[float, float, str]] = {}
+
+
+def _et_date() -> str:
+    return datetime.now(_ET).strftime("%Y%m%d")
 
 
 def _fresh(symbol: str) -> float | None:
     rec = _prev_close.get(symbol)
-    if rec and (time.time() - rec[0]) < _TTL:
+    if rec and (time.time() - rec[0]) < _TTL and rec[2] == _et_date():
         return rec[1]
     return None
 
@@ -58,7 +66,7 @@ def overseas_prev_close_map(holdings: list[tuple[str, str]]) -> dict[str, float]
                 if df is not None and not df.empty:
                     base = _f(df.iloc[0]["base"])
                     if base > 0:
-                        _prev_close[sym] = (time.time(), base)
+                        _prev_close[sym] = (time.time(), base, _et_date())
                         pc = base
                         fills += 1
             except Exception:
@@ -95,7 +103,7 @@ def domestic_prev_close_map(symbols: list[str]) -> dict[str, float]:
                 sym = str(r.get("inter_shrn_iscd", "")).strip()
                 pc = _f(r.get("inter2_prdy_clpr"))
                 if sym and pc > 0:
-                    _prev_close[sym] = (time.time(), pc)
+                    _prev_close[sym] = (time.time(), pc, _et_date())
                     result[sym] = pc
     except Exception:
         pass
