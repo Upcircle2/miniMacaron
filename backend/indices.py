@@ -176,7 +176,7 @@ def _build_quote(t: dict) -> dict:
                 price, prev, spark = _yahoo(t["yahoo"], sess)
                 _spark_cache[name] = (time.time(), spark)
             except Exception:
-                _yahoo_cooldown_until = time.time() + 180
+                _yahoo_cooldown_until = time.time() + 1200  # 429 시 20분 백오프 (차단 악화 방지)
 
         if spark is None and sc:                            # 백필 실패 → 직전 차트 유지
             spark = sc[1]
