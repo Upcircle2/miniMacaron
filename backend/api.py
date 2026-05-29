@@ -16,7 +16,7 @@ import hmac
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from backend import auth, balance, ipc
+from backend import auth, balance, indices, ipc
 
 app = FastAPI(title="miniMacaron", version="0.1.0")
 
@@ -75,3 +75,12 @@ def balance_overseas() -> dict:
 @app.get("/balance/domestic", dependencies=[Depends(require_token)])
 def balance_domestic() -> dict:
     return _snapshot(balance.domestic_snapshot)
+
+
+@app.get("/indices", dependencies=[Depends(require_token)])
+def market_indices() -> list[dict]:
+    """나스닥 종합 · S&P500 — 값/등락률/장중 스파크라인."""
+    try:
+        return indices.get_indices()
+    except Exception:
+        return []

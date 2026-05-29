@@ -46,6 +46,18 @@ struct DomesticSummary: Codable {
     let dnca_krw: Double
 }
 
+/// /indices 응답 — 주요 지수(나스닥·S&P500) 미니 위젯용.
+struct IndexQuote: Codable, Identifiable {
+    var id: String { key }
+    let key: String
+    let name: String
+    let value: Double
+    let change: Double
+    let rate: Double
+    let up: Bool
+    let spark: [[Double]]   // [[x(0~1, 세션 시각), value], ...]
+}
+
 struct DomesticHolding: Codable, Identifiable {
     var id: String { symbol }
     let symbol: String
