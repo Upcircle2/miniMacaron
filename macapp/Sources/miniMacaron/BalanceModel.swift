@@ -72,11 +72,11 @@ final class BalanceModel: ObservableObject {
         Task { await indicesLoop() }
     }
 
-    /// 주요 지수(나스닥·S&P500)는 10초 주기로 갱신 (분봉 스파크라인).
+    /// 주요 지수(나스닥·S&P500/선물) 5초 주기 갱신 (값은 5초, 차트는 백엔드 60초 캐시).
     private func indicesLoop() async {
         while !Task.isCancelled {
             await fetchIndices()
-            try? await Task.sleep(for: .seconds(10))
+            try? await Task.sleep(for: .seconds(5))
         }
     }
 

@@ -34,31 +34,41 @@ struct ContentView: View {
         }
     }
 
-    /// 표시 통화에 따라 팝오버 가로폭 가변 (₩ 큰 숫자 = 더 넓게).
+    /// 팝오버 가로폭 (₩ 큰 숫자 = 더 넓게).
     private var popoverWidth: CGFloat {
-        // 종목 셀에 기업명(최대 120pt)이 추가돼 폭을 더 확보.
         (model.market == .domestic || showKRW) ? 620 : 540
     }
 
     private var mainView: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
-            HStack(alignment: .center, spacing: 10) {
-                marketToggle.frame(width: 116)
-                Spacer(minLength: 6)
-                ForEach(model.indices) { IndexMini(q: $0) }
+            // 토글+요약은 정상 흐름, 지수 위젯은 우측 상단에 overlay(겹침) → 레이아웃 안 밀림.
+            VStack(alignment: .leading, spacing: 8) {
+                HStack { marketToggle.frame(width: 116); Spacer() }
+                summaryArea
             }
-            if model.market == .overseas {
-                overseasSection
-            } else {
-                domesticSection
+            .overlay(alignment: .topTrailing) {
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(model.indices) { IndexMini(q: $0) }
+                }
             }
+            tableArea
             Divider()
             footer
         }
         .padding(12)
         .frame(width: popoverWidth)
         .forceArrowCursor()
+    }
+
+    // 좌측 요약 (시장별)
+    @ViewBuilder private var summaryArea: some View {
+        if model.market == .overseas { overseasSummary } else { domesticSummary }
+    }
+
+    // 종목 표 (시장별)
+    @ViewBuilder private var tableArea: some View {
+        if model.market == .overseas { overseasTable } else { domesticTable }
     }
 
     // MARK: 상단 토글 / 헤더
@@ -95,19 +105,26 @@ struct ContentView: View {
 
     // MARK: 해외
 
-    @ViewBuilder private var overseasSection: some View {
+    @ViewBuilder private var overseasSummary: some View {
         if let snap = model.overseas {
             VStack(alignment: .leading, spacing: 2) {
                 Text("총자산  ₩\(won(snap.summary.tot_asset_krw))").font(.title3.bold())
+                    .lineLimit(1).minimumScaleFactor(0.7)
                 HStack(spacing: 6) {
                     Text("평가손익 ₩\(won(snap.summary.eval_pl_krw))")
                     Text("(\(pct(snap.summary.eval_rate)))")
                 }
+                .lineLimit(1).minimumScaleFactor(0.7)
                 .foregroundStyle(snap.summary.eval_pl_krw >= 0 ? .green : .red)
                 Text("평가 ₩\(won(snap.summary.eval_krw)) · 매입 ₩\(won(snap.summary.pchs_krw)) · 환율 \(String(format: "%.1f", snap.exrt))")
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).minimumScaleFactor(0.75)
             }
+        }
+    }
+
+    @ViewBuilder private var overseasTable: some View {
+        if let snap = model.overseas {
             sortBar
             tableView(valueLabel: showKRW ? "평가₩" : "평가$", rows: overseasRows(snap))
         } else {
@@ -143,16 +160,23 @@ struct ContentView: View {
 
     // MARK: 국내
 
-    @ViewBuilder private var domesticSection: some View {
+    @ViewBuilder private var domesticSummary: some View {
         if let snap = model.domestic {
             VStack(alignment: .leading, spacing: 2) {
                 Text("총 자산  ₩\(won(snap.summary.tot_eval_krw))").font(.title3.bold())
+                    .lineLimit(1).minimumScaleFactor(0.7)
                 Text("평가손익 ₩\(won(snap.summary.eval_pl_krw))")
+                    .lineLimit(1).minimumScaleFactor(0.7)
                     .foregroundStyle(snap.summary.eval_pl_krw >= 0 ? .green : .red)
                 Text("순자산 ₩\(won(snap.summary.nass_krw)) · 예수금 ₩\(won(snap.summary.dnca_krw))")
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).minimumScaleFactor(0.75)
             }
+        }
+    }
+
+    @ViewBuilder private var domesticTable: some View {
+        if let snap = model.domestic {
             if snap.holdings.isEmpty {
                 Text("국내 보유 종목 없음")
                     .foregroundStyle(.secondary)
@@ -323,38 +347,52 @@ struct ContentView: View {
 }
 
 /// 주요 지수 미니 위젯 (이름 · 등락률 · 값 · 스파크라인).
-fileprivate struct IndexMini: View {
-    let q: IndexQuote
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 5) {
-                Text(q.name).font(.system(size: 15, weight: .bold))
-                Text(String(format: "%+.2f%%", q.rate))
-                    .font(.system(size: 13))
-                    .foregroundStyle(q.up ? .green : .red)
-            }
-            Text(q.value.formatted(.number.precision(.fractionLength(2))))
-                .font(.system(size: 14, design: .monospaced))
-                .foregroundStyle(.secondary)
-            Sparkline(points: q.spark, up: q.up)
-                .frame(width: 120, height: 30)
-        }
+private struct IndexWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
-/// 장중 시계열 스파크라인 — x축 = ET 정규장 09:30~16:00 (points[i] = [x(0~1), value]).
+fileprivate struct IndexMini: View {
+    let q: IndexQuote
+    @State private var textW: CGFloat = 120   // 텍스트 블록 폭 → 차트 폭에 적용
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text(q.name).font(.system(size: 15, weight: .bold))
+                    Text(String(format: "%+.2f%%", q.rate))
+                        .font(.system(size: 13))
+                        .foregroundStyle(q.up ? .green : .red)
+                }
+                Text(q.value.formatted(.number.precision(.fractionLength(2))))
+                    .font(.system(size: 14, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .background(GeometryReader { g in
+                Color.clear.preference(key: IndexWidthKey.self, value: g.size.width)
+            })
+            Sparkline(points: q.spark, up: q.up)
+                .frame(width: textW, height: 34)   // 차트 좌우 끝 = 텍스트 블록 좌우 끝
+        }
+        .onPreferenceChange(IndexWidthKey.self) { if $0 > 0 { textW = $0 } }
+    }
+}
+
+/// 장중 시계열 스파크라인 — 보유 데이터를 프레임 가로폭에 균등 분포로 꽉 채움.
 fileprivate struct Sparkline: View {
     let points: [[Double]]
     let up: Bool
     var body: some View {
         GeometryReader { geo in
             let vs = points.compactMap { $0.count > 1 ? $0[1] : nil }
-            if points.count > 1, let lo = vs.min(), let hi = vs.max(), hi > lo {
+            if vs.count > 1, let lo = vs.min(), let hi = vs.max(), hi > lo {
                 Path { p in
                     let w = geo.size.width, h = geo.size.height
-                    for (i, pt) in points.enumerated() where pt.count > 1 {
-                        let x = w * CGFloat(pt[0])
-                        let y = h * (1 - CGFloat((pt[1] - lo) / (hi - lo)))
+                    for (i, v) in vs.enumerated() {
+                        let x = w * CGFloat(i) / CGFloat(vs.count - 1)  // 균등 분포(좌→우 꽉)
+                        let y = h * (1 - CGFloat((v - lo) / (hi - lo)))
                         if i == 0 { p.move(to: CGPoint(x: x, y: y)) }
                         else { p.addLine(to: CGPoint(x: x, y: y)) }
                     }
