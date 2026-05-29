@@ -78,9 +78,9 @@ def balance_domestic() -> dict:
 
 
 @app.get("/indices", dependencies=[Depends(require_token)])
-def market_indices() -> list[dict]:
-    """나스닥 종합 · S&P500 — 값/등락률/장중 스파크라인."""
+def market_indices(market: str = "overseas") -> list[dict]:
+    """시장 지수 — 국내(코스피·코스닥) / 해외(나스닥·S&P500 또는 선물). 값+스파크라인."""
     try:
-        return indices.get_indices()
+        return indices.get_indices(market)
     except Exception:
         return []
