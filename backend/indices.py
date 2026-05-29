@@ -33,6 +33,9 @@ _ET = ZoneInfo("America/New_York")
 _cache: dict = {"ts": 0.0, "data": []}
 _last_good: dict[str, dict] = {}
 _series: dict[str, dict] = {}      # name -> {"date":, "pts": {et_min: value}}
+# 스파크라인(Yahoo 백필) 전용 캐시 — 값과 분리해 Yahoo 호출을 ~150초당 1회로 억제(429 회피)
+_spark_cache: dict[str, tuple[float, list]] = {}  # name -> (ts, spark)
+_SPARK_TTL = 150
 _yahoo_cooldown_until = 0.0
 
 
@@ -49,8 +52,15 @@ def _f(v) -> float | None:
         return None
 
 
-def _yahoo(symbol: str) -> tuple[float, float, list[list[float]]]:
-    """(현재가, 전일종가, 풀데이 스파크라인[[x,v]]). 실패 시 예외."""
+def _yahoo(symbol: str, sess: tuple) -> tuple[float, float, list[list[float]]]:
+    """(현재가, 전일종가, 풀데이 스파크라인[[x,v]]). 실패 시 예외.
+
+    x축은 세션 윈도우(tz, open~close)에 맞춰 매핑 → 현금지수=ET 09:30~16:00,
+    선물=KST 05:01~22:30. 윈도우 시작점이 항상 x=0(왼쪽 끝)이라 실행 시점과 무관하게
+    세션 개시부터 백필됨.
+    """
+    tz, o_min, c_min = sess
+    span = max(1, c_min - o_min)
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
            f"{urllib.parse.quote(symbol)}?interval=1m&range=1d")
     res = json.loads(_http(url))["chart"]["result"][0]
@@ -64,8 +74,8 @@ def _yahoo(symbol: str) -> tuple[float, float, list[list[float]]]:
     prev = _f(m.get("chartPreviousClose")) or _f(m.get("previousClose")) or float(pts[0][1])
     spark: list[list[float]] = []
     for t, c in pts:
-        et = datetime.fromtimestamp(t, _ET)
-        x = (et.hour * 60 + et.minute - _OPEN_MIN) / _SESSION
+        lt = datetime.fromtimestamp(t, tz)
+        x = (lt.hour * 60 + lt.minute - o_min) / span
         if 0 <= x <= 1:
             spark.append([round(x, 4), round(float(c), 2)])
     if len(spark) > _SPARK_POINTS:
@@ -124,27 +134,41 @@ def _build_quote(ysym: str, csym: str, ssym: str, name: str, sess: tuple) -> dic
     """한 종목(지수/선물)의 값·등락률·스파크라인 dict. 실패 시 last-good, 그것도 없으면 예외."""
     global _yahoo_cooldown_until
     try:
+        # ── 값/등락률: CNBC(안정) → Stooq (매 호출, 신선) ──
         price = prev = None
-        spark: list[list[float]] | None = None
-
-        if time.time() >= _yahoo_cooldown_until:   # 1순위 Yahoo (스파크라인까지)
+        for src in (lambda: _cnbc(csym), lambda: _stooq(ssym)):
             try:
-                price, prev, spark = _yahoo(ysym)
+                price, prev = src(); break
             except Exception:
-                _yahoo_cooldown_until = time.time() + 180  # 3분 백오프
+                continue
 
-        if price is None:                          # 값 폴백: CNBC → Stooq
-            for src in (lambda: _cnbc(csym), lambda: _stooq(ssym)):
-                try:
-                    price, prev = src(); break
-                except Exception:
-                    continue
+        # ── 누적: 매 폴링 현재값을 세션 버퍼에 기록(연속 운영 시 05:01부터 자동 축적) ──
+        acc_spark = _accumulate_spark(name, price, sess) if price is not None else None
+
+        # ── 스파크라인 우선순위: Yahoo 백필(150초 캐시) > 직전 Yahoo > 누적 ──
+        spark: list[list[float]] | None = None
+        sc = _spark_cache.get(name)
+        if sc and time.time() - sc[0] < _SPARK_TTL:
+            spark = sc[1]                              # 캐시 신선 → Yahoo 미호출(429 회피)
+        elif time.time() >= _yahoo_cooldown_until:
+            try:
+                yp, ypv, ys = _yahoo(ysym, sess)      # 세션 개시(05:01/09:30)부터 과거 백필
+                if ys:
+                    spark = ys
+                    _spark_cache[name] = (time.time(), ys)
+                if price is None:
+                    price, prev = yp, ypv
+            except Exception:
+                _yahoo_cooldown_until = time.time() + 180
+        if spark is None:
+            spark = sc[1] if sc else acc_spark         # Yahoo 불가 → 직전 백필 또는 누적
+
         if price is None or prev is None:
             raise ValueError("all sources failed")
+        if not spark:
+            spark = acc_spark or []
 
         chg = price - prev
-        if not spark:
-            spark = _accumulate_spark(name, price, sess)
         res = {"key": ysym, "name": name, "value": round(price, 2),
                "change": round(chg, 2), "rate": round(chg / prev * 100, 2) if prev else 0.0,
                "up": chg >= 0, "spark": spark}
