@@ -14,6 +14,7 @@ final class BalanceModel: ObservableObject {
     }
     @Published var overseas: OverseasSnapshot?
     @Published var domestic: DomesticSnapshot?
+    @Published var indices: [IndexQuote] = []   // 나스닥·S&P500 미니 위젯
     @Published var connected = true            // 연속 실패 누적 시에만 false
     @Published var lastUpdate: Date?
     @Published var setupComplete: Bool? = nil  // nil = 확인 중/백엔드 다운
@@ -53,6 +54,26 @@ final class BalanceModel: ObservableObject {
         Task {
             await checkHealth()
             await pollLoop()
+        }
+        Task { await indicesLoop() }
+    }
+
+    /// 주요 지수(나스닥·S&P500)는 10초 주기로 갱신 (분봉 스파크라인).
+    private func indicesLoop() async {
+        while !Task.isCancelled {
+            await fetchIndices()
+            try? await Task.sleep(for: .seconds(10))
+        }
+    }
+
+    private func fetchIndices() async {
+        guard let url = URL(string: base + "/indices") else { return }
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: authorizedRequest(url))
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
+            indices = try JSONDecoder().decode([IndexQuote].self, from: data)
+        } catch {
+            // 실패 시 직전 값 유지
         }
     }
 

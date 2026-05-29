@@ -43,7 +43,11 @@ struct ContentView: View {
     private var mainView: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
-            marketToggle
+            HStack(alignment: .center, spacing: 10) {
+                marketToggle.frame(width: 116)
+                Spacer(minLength: 6)
+                ForEach(model.indices) { IndexMini(q: $0) }
+            }
             if model.market == .overseas {
                 overseasSection
             } else {
@@ -315,6 +319,49 @@ struct ContentView: View {
     }
     private func signedKRW(_ v: Double) -> String {
         (v < 0 ? "-₩" : "+₩") + won(abs(v))
+    }
+}
+
+/// 주요 지수 미니 위젯 (이름 · 등락률 · 값 · 스파크라인).
+fileprivate struct IndexMini: View {
+    let q: IndexQuote
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                Text(q.name).font(.system(size: 15, weight: .bold))
+                Text(String(format: "%+.2f%%", q.rate))
+                    .font(.system(size: 13))
+                    .foregroundStyle(q.up ? .green : .red)
+            }
+            Text(q.value.formatted(.number.precision(.fractionLength(2))))
+                .font(.system(size: 14, design: .monospaced))
+                .foregroundStyle(.secondary)
+            Sparkline(points: q.spark, up: q.up)
+                .frame(width: 120, height: 30)
+        }
+    }
+}
+
+/// 장중 시계열 스파크라인 — x축 = ET 정규장 09:30~16:00 (points[i] = [x(0~1), value]).
+fileprivate struct Sparkline: View {
+    let points: [[Double]]
+    let up: Bool
+    var body: some View {
+        GeometryReader { geo in
+            let vs = points.compactMap { $0.count > 1 ? $0[1] : nil }
+            if points.count > 1, let lo = vs.min(), let hi = vs.max(), hi > lo {
+                Path { p in
+                    let w = geo.size.width, h = geo.size.height
+                    for (i, pt) in points.enumerated() where pt.count > 1 {
+                        let x = w * CGFloat(pt[0])
+                        let y = h * (1 - CGFloat((pt[1] - lo) / (hi - lo)))
+                        if i == 0 { p.move(to: CGPoint(x: x, y: y)) }
+                        else { p.addLine(to: CGPoint(x: x, y: y)) }
+                    }
+                }
+                .stroke(up ? Color.green : Color.red, lineWidth: 1.3)
+            }
+        }
     }
 }
 
