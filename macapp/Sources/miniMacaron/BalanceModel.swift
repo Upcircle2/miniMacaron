@@ -10,11 +10,15 @@ enum Market: String, CaseIterable, Identifiable {
 @MainActor
 final class BalanceModel: ObservableObject {
     @Published var market: Market = .overseas {
-        didSet { Task { await fetchOnce() } }  // 토글 시 즉시 갱신
+        // 시장별 지수를 따로 캐시 → 토글 시 캐시된 값 즉시 표시(깜빡임 없음) + 백그라운드 갱신.
+        didSet { Task { await fetchOnce(); await fetchIndices() } }
     }
     @Published var overseas: OverseasSnapshot?
     @Published var domestic: DomesticSnapshot?
-    @Published var indices: [IndexQuote] = []   // 나스닥·S&P500 미니 위젯
+    @Published private var overseasIdx: [IndexQuote] = []   // 해외 지수 캐시
+    @Published private var domesticIdx: [IndexQuote] = []   // 국내 지수 캐시
+    /// 현재 시장의 지수 위젯 (캐시 반환 — 전환 시 즉시 표시).
+    var indices: [IndexQuote] { market == .domestic ? domesticIdx : overseasIdx }
     @Published var connected = true            // 연속 실패 누적 시에만 false
     @Published var lastUpdate: Date?
     @Published var dataAsOf: Double?           // 서버가 보낸 데이터 생성 epoch (신선도)
@@ -81,13 +85,17 @@ final class BalanceModel: ObservableObject {
     }
 
     private func fetchIndices() async {
-        guard let url = URL(string: base + "/indices") else { return }
+        // 요청 시점의 시장을 캡처해 해당 캐시에만 반영(전환돼도 엉뚱한 곳에 안 들어감).
+        let cur = market
+        let mkt = cur == .domestic ? "domestic" : "overseas"
+        guard let url = URL(string: base + "/indices?market=\(mkt)") else { return }
         do {
             let (data, resp) = try await URLSession.shared.data(for: authorizedRequest(url))
             guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
-            indices = try JSONDecoder().decode([IndexQuote].self, from: data)
+            let decoded = try JSONDecoder().decode([IndexQuote].self, from: data)
+            if cur == .domestic { domesticIdx = decoded } else { overseasIdx = decoded }
         } catch {
-            // 실패 시 직전 값 유지
+            // 실패 시 직전 값 유지(캐시 보존)
         }
     }
 

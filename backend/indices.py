@@ -36,21 +36,22 @@ _SPARK_TTL = 60   # 차트(스파크) 캐시 — 60초 (1분봉이라 더 빨라
 _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-# 표시 대상. chart=(Nasdaq.com sym, assetclass) → 스파크 모양 / cnbc → 표시 숫자 / stooq → 값 폴백
+# 표시 대상. src=차트 제공자(nasdaq/naver), chart=(sym, assetclass) / cnbc=표시 숫자 / stooq=값 폴백
+# 해외: 차트는 ETF(QQQ/SPY) — 지수(COMP)는 Nasdaq.com 장중 데이터 빈약. 값은 CNBC 지수 그대로.
 _CASH = [
-    # 차트는 좌우 일관성 위해 둘 다 ETF(QQQ/SPY) — 지수(COMP)는 Nasdaq.com 장중 데이터가 빈약.
-    # 값은 CNBC 지수 그대로(.IXIC 나스닥종합 / .SPX S&P500). QQQ=나스닥100, 장중 모양 거의 동일.
-    {"name": "나스닥", "sess": _SESS_CASH, "chart": ("QQQ", "etf"),
-     "cnbc": ".IXIC", "stooq": "^ndq"},
-    {"name": "S&P 500", "sess": _SESS_CASH, "chart": ("SPY", "etf"),
-     "cnbc": ".SPX", "stooq": "^spx"},
+    {"name": "나스닥", "src": "nasdaq", "chart": ("QQQ", "etf"), "cnbc": ".IXIC", "stooq": "^ndq"},
+    {"name": "S&P 500", "src": "nasdaq", "chart": ("SPY", "etf"), "cnbc": ".SPX", "stooq": "^spx"},
 ]
 _FUT = [
-    {"name": "나스닥 선물", "sess": _SESS_FUT, "chart": ("QQQ", "etf"),
-     "cnbc": "@ND.1", "stooq": ""},
+    {"name": "나스닥 선물", "src": "nasdaq", "chart": ("QQQ", "etf"), "cnbc": "@ND.1", "stooq": ""},
+]
+# 국내: 값 CNBC(.KS11 코스피 / .KQ11 코스닥), 차트 Naver 일봉(키없는 분봉 미제공 → 일봉 추세)
+_KR = [
+    {"name": "코스피", "src": "naver", "chart": ("KOSPI",), "cnbc": ".KS11", "stooq": "^kospi"},
+    {"name": "코스닥", "src": "naver", "chart": ("KOSDAQ",), "cnbc": ".KQ11", "stooq": "^kosdaq"},
 ]
 
-_cache: dict = {"ts": 0.0, "data": []}
+_cache: dict = {}                                  # market -> {"ts", "data"}
 _last_good: dict[str, dict] = {}
 _spark_cache: dict[str, tuple[float, list]] = {}   # name -> (ts, spark)
 
@@ -113,6 +114,21 @@ def _nasdaq(sym: str, ac: str, sess: tuple) -> tuple[float, float, list[list[flo
     return price, prev, _series_xy(pts)
 
 
+def _naver_chart(code: str) -> list[list[float]]:
+    """Naver 국내지수 일봉 차트 → spark. (분봉 무료 미제공이라 최근 ~80일 추세)."""
+    url = (f"https://api.stock.naver.com/chart/domestic/index/"
+           f"{urllib.parse.quote(code)}?periodType=dayCandle&count=80")
+    d = json.loads(_http(url))
+    pts = []
+    for p in d.get("priceInfos") or []:
+        v, dt = _f(p.get("closePrice")), p.get("localDate")
+        if v and dt:
+            pts.append((float(dt), v))   # localDate(YYYYMMDD) 로 시간순 정렬
+    if not pts:
+        raise ValueError("naver no data")
+    return _series_xy(pts)
+
+
 # ── 값 전용 (정확한 지수·선물 숫자) ──────────────────────────────────────────
 def _cnbc(sym: str) -> tuple[float, float]:
     url = (f"https://quote.cnbc.com/quote-html-webservice/quote.htm"
@@ -136,17 +152,20 @@ def _stooq(sym: str) -> tuple[float, float]:
 
 # ── 조립 ──────────────────────────────────────────────────────────────────────
 def _build_quote(t: dict) -> dict:
-    """대상 1개 → 값(CNBC)·풀세션 스파크라인(Nasdaq.com) dict. 실패 시 last-good."""
-    name, sess = t["name"], t["sess"]
+    """대상 1개 → 값(CNBC)·스파크라인(Nasdaq.com/Naver) dict. 실패 시 last-good."""
+    name = t["name"]
     try:
-        # 차트(스파크): Nasdaq.com — 150초 캐시 + 직전값 유지
+        # 차트(스파크): 60초 캐시 + 직전값 유지. 소스는 src 로 분기.
         spark: list[list[float]] | None = None
         sc = _spark_cache.get(name)
         if sc and time.time() - sc[0] < _SPARK_TTL:
             spark = sc[1]
         else:
             try:
-                _, _, spark = _nasdaq(t["chart"][0], t["chart"][1], sess)
+                if t.get("src") == "naver":
+                    spark = _naver_chart(t["chart"][0])
+                else:
+                    _, _, spark = _nasdaq(t["chart"][0], t["chart"][1], None)
                 _spark_cache[name] = (time.time(), spark)
             except Exception:
                 spark = sc[1] if sc else None               # 실패 시 직전 차트 유지
@@ -180,11 +199,15 @@ def _show_futures() -> bool:
     return _FUT_OPEN <= m <= _FUT_CLOSE
 
 
-def get_indices() -> list[dict]:
-    """KST 시간대별 [선물] 또는 [나스닥·S&P500] — 캐시(10s)."""
-    if _cache["data"] and time.time() - _cache["ts"] < _TTL:
-        return _cache["data"]
-    targets = _FUT if _show_futures() else _CASH
+def get_indices(market: str = "overseas") -> list[dict]:
+    """시장별 지수 — 국내: 코스피·코스닥 / 해외: 시간대별 선물 또는 나스닥·S&P500. 캐시(5s)."""
+    c = _cache.setdefault(market, {"ts": 0.0, "data": []})
+    if c["data"] and time.time() - c["ts"] < _TTL:
+        return c["data"]
+    if market == "domestic":
+        targets = _KR
+    else:
+        targets = _FUT if _show_futures() else _CASH
     out: list[dict] = []
     for t in targets:
         try:
@@ -192,6 +215,6 @@ def get_indices() -> list[dict]:
         except Exception:
             continue
     if out:
-        _cache["ts"] = time.time()
-        _cache["data"] = out
-    return out if out else _cache["data"]
+        c["ts"] = time.time()
+        c["data"] = out
+    return out if out else c["data"]
