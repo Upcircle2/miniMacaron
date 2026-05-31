@@ -18,6 +18,7 @@ fileprivate struct RowItem: Identifiable {
     let rate: Double
     let gain: Bool
     let dayRate: Double?   // 전일 종가 대비 등락률
+    let stocksSymbol: String   // Apple 주식 앱 딥링크용 심볼
 }
 
 struct ContentView: View {
@@ -143,7 +144,8 @@ struct ContentView: View {
                 value: showKRW ? "₩\(won(h.eval_usd * snap.exrt))" : "$\(won(h.eval_usd))",
                 rate: h.pl_rate,
                 gain: h.pl_usd >= 0,
-                dayRate: h.day_rate
+                dayRate: h.day_rate,
+                stocksSymbol: h.symbol   // 미국 티커 그대로 (예: AMD)
             )
         }
     }
@@ -201,7 +203,8 @@ struct ContentView: View {
                 value: "₩\(won(h.eval_krw))",
                 rate: h.pl_rate,
                 gain: h.pl_krw >= 0,
-                dayRate: h.day_rate
+                dayRate: h.day_rate,
+                stocksSymbol: "\(h.symbol).KS"   // 국내: 6자리코드 + .KS (Apple 주식 한국 표기, best-effort)
             )
         }
     }
@@ -289,6 +292,8 @@ struct ContentView: View {
                     }
                     .font(.system(.body, design: .monospaced))
                     .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                    .onTapGesture { openInStocks(r.stocksSymbol) }   // 클릭 → Apple 주식 앱
 
                     if r.id != rows.last?.id {
                         Divider().gridCellColumns(5)
@@ -330,6 +335,15 @@ struct ContentView: View {
             Button("종료") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless)
         }
+    }
+
+    /// 종목 클릭 → Apple 주식 앱의 해당 종목 상세로 이동.
+    private func openInStocks(_ symbol: String) {
+        let s = symbol.trimmingCharacters(in: .whitespaces)
+        guard !s.isEmpty,
+              let enc = s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "stocks://?symbol=\(enc)") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func won(_ v: Double) -> String {
