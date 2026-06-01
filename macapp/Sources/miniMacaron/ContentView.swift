@@ -14,7 +14,9 @@ fileprivate struct RowItem: Identifiable {
     let name: String
     let pl: String
     let cur: String
+    let avgPrice: String   // 매입단가
     let value: String
+    let pchsAmount: String // 매입금액
     let rate: Double
     let gain: Bool
     let dayRate: Double?   // 전일 종가 대비 등락률
@@ -35,9 +37,9 @@ struct ContentView: View {
         }
     }
 
-    /// 팝오버 가로폭 (₩ 큰 숫자 = 더 넓게).
+    /// 팝오버 가로폭 (₩ 큰 숫자 = 더 넓게). 매입단가·매입금액 2열 추가로 확대.
     private var popoverWidth: CGFloat {
-        (model.market == .domestic || showKRW) ? 620 : 540
+        (model.market == .domestic || showKRW) ? 760 : 680
     }
 
     private var mainView: some View {
@@ -141,7 +143,9 @@ struct ContentView: View {
                 name: h.name,
                 pl: showKRW ? signedKRW(h.pl_usd * snap.exrt) : signedUSD(h.pl_usd),
                 cur: showKRW ? "₩\(won(h.cur * snap.exrt))" : String(format: "$%.2f", h.cur),
+                avgPrice: showKRW ? "₩\(won(h.avg * snap.exrt))" : String(format: "$%.2f", h.avg),
                 value: showKRW ? "₩\(won(h.eval_usd * snap.exrt))" : "$\(won(h.eval_usd))",
+                pchsAmount: showKRW ? "₩\(won(h.pchs_usd * snap.exrt))" : "$\(won(h.pchs_usd))",
                 rate: h.pl_rate,
                 gain: h.pl_usd >= 0,
                 dayRate: h.day_rate,
@@ -200,7 +204,9 @@ struct ContentView: View {
                 name: h.name,
                 pl: signedKRW(h.pl_krw),
                 cur: "₩\(won(h.cur))",
+                avgPrice: "₩\(won(h.avg))",
                 value: "₩\(won(h.eval_krw))",
+                pchsAmount: "₩\(won(h.eval_krw - h.pl_krw))",
                 rate: h.pl_rate,
                 gain: h.pl_krw >= 0,
                 dayRate: h.day_rate,
@@ -261,12 +267,14 @@ struct ContentView: View {
                     Text("손익")
                     Text("손익%")
                     Text("현재")
+                    Text("매입단가")
                     Text(valueLabel)
+                    Text(valueLabel.hasPrefix("평가₩") ? "매입₩" : "매입$")
                 }
                 .font(.caption2).foregroundStyle(.secondary)
                 .padding(.vertical, 5)
 
-                Divider().gridCellColumns(5)
+                Divider().gridCellColumns(7)
 
                 ForEach(rows) { r in
                     GridRow {
@@ -288,7 +296,9 @@ struct ContentView: View {
                         Text(r.pl).foregroundStyle(r.gain ? .green : .red).lineLimit(1)
                         Text(pct(r.rate)).foregroundStyle(r.gain ? .green : .red).lineLimit(1)
                         Text(r.cur).lineLimit(1)
+                        Text(r.avgPrice).lineLimit(1)
                         Text(r.value).lineLimit(1)
+                        Text(r.pchsAmount).lineLimit(1)
                     }
                     .font(.system(.body, design: .monospaced))
                     .padding(.vertical, 4)
@@ -296,7 +306,7 @@ struct ContentView: View {
                     .onTapGesture { openInStocks(r.stocksSymbol) }   // 클릭 → Apple 주식 앱
 
                     if r.id != rows.last?.id {
-                        Divider().gridCellColumns(5)
+                        Divider().gridCellColumns(7)
                     }
                 }
             }
