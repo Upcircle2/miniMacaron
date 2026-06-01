@@ -37,10 +37,10 @@ final class BalanceModel: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 토큰 헤더가 붙은 GET 요청 (행 방지용 8초 타임아웃).
+    /// 토큰 헤더가 붙은 GET 요청 (행/멈춤 방지용 4초 타임아웃).
     private func authorizedRequest(_ url: URL) -> URLRequest {
         var req = URLRequest(url: url)
-        req.timeoutInterval = 8
+        req.timeoutInterval = 4
         if let t = ipcToken() {
             req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization")
         }
@@ -117,7 +117,7 @@ final class BalanceModel: ObservableObject {
         guard let url = URL(string: base + "/setup") else { return false }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.timeoutInterval = 8
+        req.timeoutInterval = 4
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let t = ipcToken() {
             req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization")
@@ -138,16 +138,14 @@ final class BalanceModel: ObservableObject {
     }
 
     private func pollLoop() async {
-        // 고정 주기 0.5초: "이전 시작 + 0.5초"가 되도록 fetch 소요시간을 차감.
-        // (fetch 후 0.5초를 자면 실제 간격 = 지연 + 0.5초 ≈ 1초가 되던 버그 수정)
+        // 고정 주기 0.5초(빠를 땐 "이전 시작+0.5초"). 응답이 느려도 최소 0.2초는 쉬어
+        // back-to-back 폭주(KIS 부하·재렌더 폭주로 멈춤 악화)를 방지.
         let interval = 0.5
         while !Task.isCancelled {
             let start = Date()
             await fetchOnce()
             let remaining = interval - Date().timeIntervalSince(start)
-            if remaining > 0 {
-                try? await Task.sleep(for: .seconds(remaining))
-            }
+            try? await Task.sleep(for: .seconds(max(0.2, remaining)))
         }
     }
 
