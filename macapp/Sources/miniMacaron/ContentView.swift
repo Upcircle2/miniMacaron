@@ -384,6 +384,7 @@ fileprivate struct IndexMini: View {
                     .font(.system(size: 14, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
+            .fixedSize(horizontal: true, vertical: false)   // 폭 고정 → GeometryReader 진동(무한 재렌더) 차단
             .background(GeometryReader { g in
                 Color.clear.preference(key: IndexWidthKey.self, value: g.size.width)
             })
