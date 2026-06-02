@@ -371,37 +371,26 @@ struct ContentView: View {
 }
 
 /// 주요 지수 미니 위젯 (이름 · 등락률 · 값 · 스파크라인).
-private struct IndexWidthKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
+/// 차트 폭은 고정값. (GeometryReader 폭측정은 장중 값 변동 시 sub-pixel 진동→무한 재렌더 루프를
+///  유발해 제거함. 미세한 텍스트-차트 폭 불일치보다 성능이 우선.)
 fileprivate struct IndexMini: View {
     let q: IndexQuote
-    @State private var textW: CGFloat = 120   // 텍스트 블록 폭 → 차트 폭에 적용
+    private let chartW: CGFloat = 150
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 5) {
-                    Text(q.name).font(.system(size: 15, weight: .bold))
-                    Text(String(format: "%+.2f%%", q.rate))
-                        .font(.system(size: 13))
-                        .foregroundStyle(q.up ? .green : .red)
-                }
-                Text(q.value.formatted(.number.precision(.fractionLength(2))))
-                    .font(.system(size: 14, design: .monospaced))
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 5) {
+                Text(q.name).font(.system(size: 15, weight: .bold))
+                Text(String(format: "%+.2f%%", q.rate))
+                    .font(.system(size: 13))
+                    .foregroundStyle(q.up ? .green : .red)
             }
-            .fixedSize(horizontal: true, vertical: false)   // 폭 고정 → GeometryReader 진동(무한 재렌더) 차단
-            .background(GeometryReader { g in
-                Color.clear.preference(key: IndexWidthKey.self, value: g.size.width)
-            })
+            Text(q.value.formatted(.number.precision(.fractionLength(2))))
+                .font(.system(size: 14, design: .monospaced))
+                .foregroundStyle(.secondary)
             Sparkline(points: q.spark, up: q.up)
-                .frame(width: textW, height: 34)   // 차트 좌우 끝 = 텍스트 블록 좌우 끝
+                .frame(width: chartW, height: 34)
         }
-        .onPreferenceChange(IndexWidthKey.self) { if $0 > 0 { textW = $0 } }
+        .frame(width: chartW, alignment: .leading)
     }
 }
 
