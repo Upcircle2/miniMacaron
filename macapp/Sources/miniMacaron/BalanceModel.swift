@@ -71,9 +71,18 @@ final class BalanceModel: ObservableObject {
         started = true
         Task {
             await checkHealth()
+            await preloadBothMarkets()   // 양 시장 미리 로딩 → 토글 시 즉시 표시(로딩 갭 제거)
             await pollLoop()
         }
         Task { await indicesLoop() }
+    }
+
+    /// 국내·해외 잔고/지수를 1회씩 미리 받아 캐시 → 탭 전환 시 네트워크 대기 없이 즉시 표시.
+    private func preloadBothMarkets() async {
+        await fetch("/balance/overseas", OverseasSnapshot.self) { self.overseas = $0 }
+        await fetch("/balance/domestic", DomesticSnapshot.self) { self.domestic = $0 }
+        await fetchIndicesFor(.overseas)
+        await fetchIndicesFor(.domestic)
     }
 
     /// 주요 지수(나스닥·S&P500/선물) 5초 주기 갱신 (값은 5초, 차트는 백엔드 60초 캐시).
@@ -84,9 +93,9 @@ final class BalanceModel: ObservableObject {
         }
     }
 
-    private func fetchIndices() async {
-        // 요청 시점의 시장을 캡처해 해당 캐시에만 반영(전환돼도 엉뚱한 곳에 안 들어감).
-        let cur = market
+    private func fetchIndices() async { await fetchIndicesFor(market) }
+
+    private func fetchIndicesFor(_ cur: Market) async {
         let mkt = cur == .domestic ? "domestic" : "overseas"
         guard let url = URL(string: base + "/indices?market=\(mkt)") else { return }
         do {
