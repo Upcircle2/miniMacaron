@@ -208,7 +208,8 @@ final class BalanceModel: ObservableObject {
 
     private func label(total: Double, pl: Double, rate: Double) -> String {
         let arrow = pl >= 0 ? "▲" : "▼"
-        return "₩\(grouped(total))  \(arrow)₩\(grouped(abs(pl))) (\(String(format: "%.2f", abs(rate)))%)"
+        let plStr = pl < 0 ? "-₩\(grouped(abs(pl)))" : "₩\(grouped(pl))"
+        return "₩\(grouped(total))  \(arrow)\(plStr) (\(String(format: "%.2f", abs(rate)))%)"
     }
 
     private func grouped(_ v: Double) -> String {
