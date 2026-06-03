@@ -395,24 +395,23 @@ fileprivate struct IndexMini: View {
 }
 
 /// 장중 시계열 스파크라인 — 보유 데이터를 프레임 가로폭에 균등 분포로 꽉 채움.
+/// Canvas 로 그림(GeometryReader 는 greedy 라 창 크기 추정 피드백 루프를 유발해 제거).
 fileprivate struct Sparkline: View {
     let points: [[Double]]
     let up: Bool
     var body: some View {
-        GeometryReader { geo in
+        Canvas { ctx, size in
             let vs = points.compactMap { $0.count > 1 ? $0[1] : nil }
-            if vs.count > 1, let lo = vs.min(), let hi = vs.max(), hi > lo {
-                Path { p in
-                    let w = geo.size.width, h = geo.size.height
-                    for (i, v) in vs.enumerated() {
-                        let x = w * CGFloat(i) / CGFloat(vs.count - 1)  // 균등 분포(좌→우 꽉)
-                        let y = h * (1 - CGFloat((v - lo) / (hi - lo)))
-                        if i == 0 { p.move(to: CGPoint(x: x, y: y)) }
-                        else { p.addLine(to: CGPoint(x: x, y: y)) }
-                    }
-                }
-                .stroke(up ? Color.green : Color.red, lineWidth: 1.3)
+            guard vs.count > 1, let lo = vs.min(), let hi = vs.max(), hi > lo else { return }
+            var path = Path()
+            let w = size.width, h = size.height
+            for (i, v) in vs.enumerated() {
+                let x = w * CGFloat(i) / CGFloat(vs.count - 1)
+                let y = h * (1 - CGFloat((v - lo) / (hi - lo)))
+                if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                else { path.addLine(to: CGPoint(x: x, y: y)) }
             }
+            ctx.stroke(path, with: .color(up ? .green : .red), lineWidth: 1.3)
         }
     }
 }
