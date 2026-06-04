@@ -61,6 +61,11 @@ struct ContentView: View {
         }
         .padding(12)
         .frame(width: popoverWidth)
+        // 세로도 ideal 로 고정 → NSHostingView 가 창 콘텐츠 min/max 크기를 매 패스마다
+        // 전체 트리 재탐색(updateWindowContentSizeExtremaIfNecessary)하지 않음.
+        // (가로만 고정 시 세로 협상이 maxWidth:.infinity 버튼·minimumScaleFactor 텍스트를
+        //  수백 번 재측정해 CPU 100% 무한 레이아웃 루프 유발 — 2026-06-05 sample 로 확인.)
+        .fixedSize(horizontal: false, vertical: true)
         .forceArrowCursor()
     }
 
