@@ -25,19 +25,27 @@ _KIS_LOCK = threading.Lock()
 # KIS '초당 거래건수 초과'(EGW00201) 방지 — 호출 간 최소 간격 보장(≤약 4/s, 실효 한도 안전마진).
 _MIN_INTERVAL = 0.25
 _last_call = [0.0]
+# 락 획득 최대 대기. KIS 호출이 느려도(≤8s read 타임아웃) 요청이 무한히 쌓여
+# 스레드풀이 고갈되지 않도록, 이 시간 못 잡으면 빠르게 실패시킨다.
+_LOCK_TIMEOUT = 10.0
 
 
 @contextmanager
 def kis_guard():
-    """KIS REST 호출 직렬화 + 최소 호출 간격 보장 (rate-limit 회피)."""
-    with _KIS_LOCK:
+    """KIS REST 호출 직렬화 + 최소 호출 간격 보장 (rate-limit 회피).
+
+    락을 _LOCK_TIMEOUT 안에 못 잡으면 TimeoutError — 혼잡 시 요청 무한 적체 차단.
+    """
+    if not _KIS_LOCK.acquire(timeout=_LOCK_TIMEOUT):
+        raise TimeoutError("KIS 호출 혼잡 — 잠시 후 재시도")
+    try:
         gap = time.monotonic() - _last_call[0]
         if gap < _MIN_INTERVAL:
             time.sleep(_MIN_INTERVAL - gap)
-        try:
-            yield
-        finally:
-            _last_call[0] = time.monotonic()
+        yield
+    finally:
+        _last_call[0] = time.monotonic()
+        _KIS_LOCK.release()
 
 # KIS rate-limit(EGW00201) 등 일시 오류 시 공식 함수는 빈 DataFrame을 반환한다.
 # 그대로 내보내면 클라이언트가 빈 요약을 받게 되므로, 직전 정상 스냅샷을 재사용.
