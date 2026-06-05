@@ -23,7 +23,33 @@ from pathlib import Path
 from typing import Literal
 
 import keyring
+import requests.adapters
 import yaml
+
+# ──────────────────────────────────────────────────────────────────────────
+# requests 기본 타임아웃 강제 (공식 KIS 코드는 requests.get/post 에 timeout 미지정 →
+# KIS가 응답을 멈추면 SSL read 가 영원히 블록 → _KIS_LOCK 점유 → 스레드풀 고갈 →
+# 백엔드 전체 행. 공식 코드 fork 없이 HTTPAdapter.send 에 기본 타임아웃을 주입한다.)
+# ──────────────────────────────────────────────────────────────────────────
+_HTTP_TIMEOUT = (5, 8)  # (connect, read) 초. 정상 KIS 응답 <2s 라 넉넉, 행은 ≤8s 후 끊김.
+
+
+def _install_requests_timeout() -> None:
+    adapter = requests.adapters.HTTPAdapter
+    if getattr(adapter, "_minimacaron_timeout_patched", False):
+        return
+    _orig_send = adapter.send
+
+    def _send(self, request, **kwargs):  # noqa: ANN001
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = _HTTP_TIMEOUT
+        return _orig_send(self, request, **kwargs)
+
+    adapter.send = _send
+    adapter._minimacaron_timeout_patched = True
+
+
+_install_requests_timeout()
 
 # ──────────────────────────────────────────────────────────────────────────
 # 상수
