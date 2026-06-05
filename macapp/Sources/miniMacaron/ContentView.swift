@@ -42,6 +42,15 @@ struct ContentView: View {
         (model.market == .domestic || showKRW) ? 760 : 680
     }
 
+    /// 표 컬럼 고정폭 (모드별). Grid 자동열폭은 매 렌더마다 전 셀을 측정해 0.5초 폴링서
+    /// 무거움 → 폭을 박아 측정 비용 제거. ₩(큰 숫자)/$(작은 숫자) 두 세트, popoverWidth 안에 맞춤.
+    private struct Cols { let sym, pl, rate, cur, avg, eval, pchs: CGFloat }
+    private var cols: Cols {
+        (model.market == .domestic || showKRW)
+            ? Cols(sym: 128, pl: 92, rate: 60, cur: 84, avg: 84, eval: 94, pchs: 94)
+            : Cols(sym: 128, pl: 70, rate: 60, cur: 72, avg: 72, eval: 70, pchs: 70)
+    }
+
     private var mainView: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
@@ -266,23 +275,25 @@ struct ContentView: View {
 
     private func tableView(valueLabel: String, rows: [RowItem]) -> some View {
         ScrollView {
-            Grid(alignment: .trailing, horizontalSpacing: 14, verticalSpacing: 0) {
-                GridRow {
-                    Text("종목").gridColumnAlignment(.leading)
-                    Text("손익")
-                    Text("손익%")
-                    Text("현재")
-                    Text("매입단가")
-                    Text(valueLabel)
+            // LazyVStack: 보이는 행만 렌더. 각 셀 고정폭 → Grid 자동열폭 측정 비용 제거.
+            LazyVStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 12) {
+                    Text("종목").frame(width: cols.sym, alignment: .leading)
+                    Text("손익").frame(width: cols.pl, alignment: .trailing)
+                    Text("손익%").frame(width: cols.rate, alignment: .trailing)
+                    Text("현재").frame(width: cols.cur, alignment: .trailing)
+                    Text("매입단가").frame(width: cols.avg, alignment: .trailing)
+                    Text(valueLabel).frame(width: cols.eval, alignment: .trailing)
                     Text(valueLabel.hasPrefix("평가₩") ? "매입₩" : "매입$")
+                        .frame(width: cols.pchs, alignment: .trailing)
                 }
                 .font(.caption2).foregroundStyle(.secondary)
                 .padding(.vertical, 5)
 
-                Divider().gridCellColumns(7)
+                Divider()
 
                 ForEach(rows) { r in
-                    GridRow {
+                    HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 4) {
                                 Text(r.symbol)
@@ -297,22 +308,23 @@ struct ContentView: View {
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        .frame(maxWidth: 140, alignment: .leading)
+                        .frame(width: cols.sym, alignment: .leading)
                         Text(r.pl).foregroundStyle(r.gain ? .green : .red).lineLimit(1)
+                            .frame(width: cols.pl, alignment: .trailing)
                         Text(pct(r.rate)).foregroundStyle(r.gain ? .green : .red).lineLimit(1)
-                        Text(r.cur).lineLimit(1)
-                        Text(r.avgPrice).lineLimit(1)
-                        Text(r.value).lineLimit(1)
-                        Text(r.pchsAmount).lineLimit(1)
+                            .frame(width: cols.rate, alignment: .trailing)
+                        Text(r.cur).lineLimit(1).frame(width: cols.cur, alignment: .trailing)
+                        Text(r.avgPrice).lineLimit(1).frame(width: cols.avg, alignment: .trailing)
+                        Text(r.value).lineLimit(1).frame(width: cols.eval, alignment: .trailing)
+                        Text(r.pchsAmount).lineLimit(1).frame(width: cols.pchs, alignment: .trailing)
                     }
                     .font(.system(.body, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
                     .contentShape(Rectangle())
                     .onTapGesture { openInStocks(r.stocksSymbol) }   // 클릭 → Apple 주식 앱
 
-                    if r.id != rows.last?.id {
-                        Divider().gridCellColumns(7)
-                    }
+                    if r.id != rows.last?.id { Divider() }
                 }
             }
             .padding(.horizontal, 8)
