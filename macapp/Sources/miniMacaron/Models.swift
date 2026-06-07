@@ -2,14 +2,19 @@ import Foundation
 
 // MARK: 해외 (/balance/overseas)
 
-struct OverseasSnapshot: Codable {
+struct OverseasSnapshot: Codable, Equatable {
     let exrt: Double
     let summary: Summary
     let holdings: [Holding]
     let as_of: Double?   // 데이터 생성 epoch (신선도 판정용)
+
+    // as_of(서버시각)는 매 폴링 변하므로 '내용 동일' 판정에서 제외 → 잔고 불변 시 재렌더 skip.
+    static func == (l: OverseasSnapshot, r: OverseasSnapshot) -> Bool {
+        l.exrt == r.exrt && l.summary == r.summary && l.holdings == r.holdings
+    }
 }
 
-struct Summary: Codable {
+struct Summary: Codable, Equatable {
     let tot_asset_krw: Double
     let eval_pl_krw: Double
     let eval_rate: Double
@@ -17,7 +22,7 @@ struct Summary: Codable {
     let pchs_krw: Double
 }
 
-struct Holding: Codable, Identifiable {
+struct Holding: Codable, Identifiable, Equatable {
     var id: String { symbol }
     let symbol: String
     let name: String
@@ -34,13 +39,17 @@ struct Holding: Codable, Identifiable {
 
 // MARK: 국내 (/balance/domestic)
 
-struct DomesticSnapshot: Codable {
+struct DomesticSnapshot: Codable, Equatable {
     let summary: DomesticSummary
     let holdings: [DomesticHolding]
     let as_of: Double?
+
+    static func == (l: DomesticSnapshot, r: DomesticSnapshot) -> Bool {
+        l.summary == r.summary && l.holdings == r.holdings
+    }
 }
 
-struct DomesticSummary: Codable {
+struct DomesticSummary: Codable, Equatable {
     let tot_eval_krw: Double
     let nass_krw: Double
     let eval_pl_krw: Double
@@ -49,7 +58,7 @@ struct DomesticSummary: Codable {
 }
 
 /// /indices 응답 — 주요 지수(나스닥·S&P500) 미니 위젯용.
-struct IndexQuote: Codable, Identifiable {
+struct IndexQuote: Codable, Identifiable, Equatable {
     var id: String { key }
     let key: String
     let name: String
@@ -60,7 +69,7 @@ struct IndexQuote: Codable, Identifiable {
     let spark: [[Double]]   // [[x(0~1, 세션 시각), value], ...]
 }
 
-struct DomesticHolding: Codable, Identifiable {
+struct DomesticHolding: Codable, Identifiable, Equatable {
     var id: String { symbol }
     let symbol: String
     let name: String
