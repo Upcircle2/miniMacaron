@@ -20,8 +20,9 @@ final class BalanceModel: ObservableObject {
     /// 현재 시장의 지수 위젯 (캐시 반환 — 전환 시 즉시 표시).
     var indices: [IndexQuote] { market == .domestic ? domesticIdx : overseasIdx }
     @Published var connected = true            // 연속 실패 누적 시에만 false
-    @Published var lastUpdate: Date?
-    @Published var dataAsOf: Double?           // 서버가 보낸 데이터 생성 epoch (신선도)
+    @Published var lastUpdate: Date?           // 잔고가 '실제로 바뀐' 마지막 시각
+    @Published private(set) var stale = false  // 신선도 경고(>90s) — 상태 변할 때만 갱신(재렌더 최소화)
+    private var dataAsOfRaw: Double?           // 서버 as_of: 매 폴링 갱신하되 @Published 아님(헛재렌더 방지)
     @Published var setupComplete: Bool? = nil  // nil = 확인 중/백엔드 다운
     @Published var showSetup = false            // 사용자가 직접 연 경우
 
@@ -47,16 +48,13 @@ final class BalanceModel: ObservableObject {
         return req
     }
 
-    /// 데이터가 오래됐는지(서버 as_of 기준 90초 초과). KIS 일시장애로 직전값이 반복될 때 true.
-    var isStale: Bool {
-        guard let a = dataAsOf else { return false }
-        return Date().timeIntervalSince1970 - a > 90
-    }
+    /// 데이터가 오래됐는지 — 폴링 루프가 상태 변할 때만 갱신하는 stale 플래그.
+    var isStale: Bool { stale }
 
     /// 푸터/플레이스홀더 표시 문구 — 단발성 실패는 숨기고 누적 실패/지연만 노출.
     var statusText: String {
         if !connected { return "백엔드 연결 끊김 — run_api.py 확인" }
-        if isStale, let a = dataAsOf {
+        if stale, let a = dataAsOfRaw {
             let age = Int(Date().timeIntervalSince1970 - a)
             let mins = age / 60
             let ago = mins > 0 ? "\(mins)분 전" : "\(age)초 전"
@@ -79,8 +77,10 @@ final class BalanceModel: ObservableObject {
 
     /// 국내·해외 잔고/지수를 1회씩 미리 받아 캐시 → 탭 전환 시 네트워크 대기 없이 즉시 표시.
     private func preloadBothMarkets() async {
-        await fetch("/balance/overseas", OverseasSnapshot.self) { self.overseas = $0 }
-        await fetch("/balance/domestic", DomesticSnapshot.self) { self.domestic = $0 }
+        if let o: OverseasSnapshot = await fetchValue("/balance/overseas") {
+            overseas = o; updateFreshness(o.as_of); lastUpdate = Date()
+        }
+        if let d: DomesticSnapshot = await fetchValue("/balance/domestic") { domestic = d }
         await fetchIndicesFor(.overseas)
         await fetchIndicesFor(.domestic)
     }
@@ -102,7 +102,12 @@ final class BalanceModel: ObservableObject {
             let (data, resp) = try await URLSession.shared.data(for: authorizedRequest(url))
             guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
             let decoded = try JSONDecoder().decode([IndexQuote].self, from: data)
-            if cur == .domestic { domesticIdx = decoded } else { overseasIdx = decoded }
+            // 값/스파크 동일하면 대입 안 함 → 지수 안 바뀐 5초 주기엔 재렌더 skip(밤새 누적 방지).
+            if cur == .domestic {
+                if domesticIdx != decoded { domesticIdx = decoded }
+            } else {
+                if overseasIdx != decoded { overseasIdx = decoded }
+            }
         } catch {
             // 실패 시 직전 값 유지(캐시 보존)
         }
@@ -161,36 +166,48 @@ final class BalanceModel: ObservableObject {
     func fetchOnce() async {
         switch market {
         case .overseas:
-            await fetch("/balance/overseas", OverseasSnapshot.self) {
-                self.overseas = $0; self.dataAsOf = $0.as_of
+            if let v: OverseasSnapshot = await fetchValue("/balance/overseas") {
+                updateFreshness(v.as_of)
+                if overseas != v { overseas = v; lastUpdate = Date() }  // 내용 바뀔 때만 재렌더
             }
         case .domestic:
-            await fetch("/balance/domestic", DomesticSnapshot.self) {
-                self.domestic = $0; self.dataAsOf = $0.as_of
+            if let v: DomesticSnapshot = await fetchValue("/balance/domestic") {
+                updateFreshness(v.as_of)
+                if domestic != v { domestic = v; lastUpdate = Date() }
             }
         }
     }
 
-    private func fetch<T: Decodable>(_ path: String, _ type: T.Type, assign: (T) -> Void) async {
-        guard let url = URL(string: base + path) else { return }
+    /// GET → 디코드. 성공 시 연결상태만 (전이 시) 갱신하고 값 반환. 실패 시 nil.
+    /// 값 대입/재렌더 여부는 호출측이 '내용 변경'을 보고 결정(헛재렌더 방지).
+    private func fetchValue<T: Decodable>(_ path: String) async -> T? {
+        guard let url = URL(string: base + path) else { return nil }
         do {
             let (data, resp) = try await URLSession.shared.data(for: authorizedRequest(url))
             guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
-                registerFailure(); return
+                registerFailure(); return nil
             }
-            assign(try JSONDecoder().decode(T.self, from: data))
+            let value = try JSONDecoder().decode(T.self, from: data)
             failStreak = 0
-            connected = true
-            lastUpdate = Date()
+            if !connected { connected = true }   // 같은 값 재대입 금지 → 전이 시에만 발화
+            return value
         } catch {
-            registerFailure()
+            registerFailure(); return nil
         }
+    }
+
+    /// 서버 as_of 로 신선도 갱신. dataAsOfRaw 는 매 폴링 갱신하되 @Published 가 아니라 재렌더 안 함.
+    /// stale 은 상태가 바뀔 때만 대입 → 닫힌 장(정상 응답)엔 false 유지, 백엔드 장애 시에만 1회 재렌더.
+    private func updateFreshness(_ asOf: Double?) {
+        dataAsOfRaw = asOf
+        let nowStale = asOf.map { Date().timeIntervalSince1970 - $0 > 90 } ?? false
+        if nowStale != stale { stale = nowStale }
     }
 
     /// 단발성 실패는 무시하고, 연속 실패(약 2초)가 쌓일 때만 연결 끊김으로 표시.
     private func registerFailure() {
         failStreak += 1
-        if failStreak >= 4 { connected = false }
+        if failStreak >= 4 && connected { connected = false }  // 전이 시에만 발화
     }
 
     /// 메뉴바 라벨 (선택된 시장 기준) — 정확한 총액 + 평가손익 + 수익률.
