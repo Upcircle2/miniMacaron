@@ -60,9 +60,9 @@ struct ContentView: View {
                 summaryArea
             }
             .overlay(alignment: .topTrailing) {
-                HStack(alignment: .top, spacing: 14) {
-                    ForEach(model.indices) { IndexMini(q: $0) }
-                }
+                // IndicesStore 만 구독하는 서브뷰 — 지수 변동(5초, 선물은 밤에도 움직임)이
+                // 팝오버 전체가 아니라 이 스트립만 재렌더.
+                IndexStrip(store: model.indicesStore, market: model.market)
             }
             tableArea
             Divider()
@@ -384,6 +384,17 @@ struct ContentView: View {
     }
     private func signedKRW(_ v: Double) -> String {
         (v < 0 ? "-₩" : "+₩") + won(abs(v))
+    }
+}
+
+/// 지수 위젯 스트립 — IndicesStore 만 구독. 지수가 변해도 재렌더 범위가 이 뷰로 한정됨.
+fileprivate struct IndexStrip: View {
+    @ObservedObject var store: IndicesStore
+    let market: Market
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            ForEach(market == .domestic ? store.domestic : store.overseas) { IndexMini(q: $0) }
+        }
     }
 }
 

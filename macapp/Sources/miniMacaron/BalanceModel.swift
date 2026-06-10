@@ -6,6 +6,15 @@ enum Market: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// 지수 위젯 전용 스토어 — BalanceModel 에서 분리해 지수 변동(나스닥 선물은 밤에도 ~24h
+/// 움직임, 5초 주기)이 팝오버 전체가 아니라 지수 위젯(IndexStrip)만 재렌더하게 한다.
+/// (24/7 가동 시 야간 헛재렌더 누적 = 렉의 주원인 — 2026-06-10 sample 로 확인.)
+@MainActor
+final class IndicesStore: ObservableObject {
+    @Published var overseas: [IndexQuote] = []
+    @Published var domestic: [IndexQuote] = []
+}
+
 /// 백엔드(127.0.0.1:8000)를 폴링해 선택된 시장의 잔고를 보관.
 @MainActor
 final class BalanceModel: ObservableObject {
@@ -15,10 +24,8 @@ final class BalanceModel: ObservableObject {
     }
     @Published var overseas: OverseasSnapshot?
     @Published var domestic: DomesticSnapshot?
-    @Published private var overseasIdx: [IndexQuote] = []   // 해외 지수 캐시
-    @Published private var domesticIdx: [IndexQuote] = []   // 국내 지수 캐시
-    /// 현재 시장의 지수 위젯 (캐시 반환 — 전환 시 즉시 표시).
-    var indices: [IndexQuote] { market == .domestic ? domesticIdx : overseasIdx }
+    /// 지수 캐시 — 별도 ObservableObject (지수 변동이 BalanceModel 구독자를 안 깨움).
+    let indicesStore = IndicesStore()
     @Published var connected = true            // 연속 실패 누적 시에만 false
     @Published var lastUpdate: Date?           // 잔고가 '실제로 바뀐' 마지막 시각
     @Published private(set) var stale = false  // 신선도 경고(>90s) — 상태 변할 때만 갱신(재렌더 최소화)
@@ -29,6 +36,15 @@ final class BalanceModel: ObservableObject {
     private let base = "http://127.0.0.1:8000"
     private var started = false
     private var failStreak = 0
+
+    /// 폴링 전용 세션 — 캐시 비활성. (기본 shared 는 0.5초 폴링 응답을 전부 URLCache 에
+    /// 기록해 24/7 디스크 쓰기(Cache.db-wal)가 끊이지 않음. localhost JSON 캐시는 무의미.)
+    private static let session: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.urlCache = nil
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: cfg)
+    }()
 
     /// 백엔드와 공유하는 IPC 토큰 (앱 지원 폴더의 파일에서 읽음).
     private func ipcToken() -> String? {
@@ -99,14 +115,14 @@ final class BalanceModel: ObservableObject {
         let mkt = cur == .domestic ? "domestic" : "overseas"
         guard let url = URL(string: base + "/indices?market=\(mkt)") else { return }
         do {
-            let (data, resp) = try await URLSession.shared.data(for: authorizedRequest(url))
+            let (data, resp) = try await Self.session.data(for: authorizedRequest(url))
             guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
             let decoded = try JSONDecoder().decode([IndexQuote].self, from: data)
-            // 값/스파크 동일하면 대입 안 함 → 지수 안 바뀐 5초 주기엔 재렌더 skip(밤새 누적 방지).
+            // 값/스파크 동일하면 대입 안 함. 변해도 IndicesStore 구독자(IndexStrip)만 재렌더.
             if cur == .domestic {
-                if domesticIdx != decoded { domesticIdx = decoded }
+                if indicesStore.domestic != decoded { indicesStore.domestic = decoded }
             } else {
-                if overseasIdx != decoded { overseasIdx = decoded }
+                if indicesStore.overseas != decoded { indicesStore.overseas = decoded }
             }
         } catch {
             // 실패 시 직전 값 유지(캐시 보존)
@@ -116,7 +132,7 @@ final class BalanceModel: ObservableObject {
     func checkHealth() async {
         guard let url = URL(string: base + "/health") else { return }
         do {
-            let (data, resp) = try await URLSession.shared.data(for: authorizedRequest(url))
+            let (data, resp) = try await Self.session.data(for: authorizedRequest(url))
             guard (resp as? HTTPURLResponse)?.statusCode == 200,
                   let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let complete = obj["setup_complete"] as? Bool else { return }
@@ -140,7 +156,7 @@ final class BalanceModel: ObservableObject {
                     "hts_id": htsId, "account_no": accountNo]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await Self.session.data(for: req)
             guard (resp as? HTTPURLResponse)?.statusCode == 200,
                   let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let ok = obj["setup_complete"] as? Bool else { return false }
@@ -183,7 +199,7 @@ final class BalanceModel: ObservableObject {
     private func fetchValue<T: Decodable>(_ path: String) async -> T? {
         guard let url = URL(string: base + path) else { return nil }
         do {
-            let (data, resp) = try await URLSession.shared.data(for: authorizedRequest(url))
+            let (data, resp) = try await Self.session.data(for: authorizedRequest(url))
             guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
                 registerFailure(); return nil
             }
