@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
@@ -189,12 +190,17 @@ def _patched_yaml_load(cfg_dict: dict):
 # FastAPI 스레드풀 동시요청에서 레이스를 일으킴. 1회만 수행하고 (ka, trenv) 재사용.
 _BOOTSTRAP_LOCK = threading.Lock()
 _BOOTSTRAP_CACHE: dict[str, tuple] = {}
+# 부트스트랩 실패 직후 쿨다운 — KIS 토큰 발급은 '분당 1회' 제한(EGW00133)이라, 첫 실패 후
+# 0.5초 폴링이 매번 발급을 재시도하면 rate-limit 에 영구 고착된다. 실패하면 잠시 쉬었다 재시도.
+_BOOTSTRAP_RETRY_COOLDOWN = 20.0
+_bootstrap_fail_until = [0.0]
 
 
 def reset_bootstrap() -> None:
     """키 변경(POST /setup) 후 캐시 무효화 — 다음 bootstrap 이 새 키로 재인증."""
     with _BOOTSTRAP_LOCK:
         _BOOTSTRAP_CACHE.clear()
+        _bootstrap_fail_until[0] = 0.0
 
 
 def bootstrap(svr: Literal["prod", "vps"] = "prod"):
@@ -202,6 +208,7 @@ def bootstrap(svr: Literal["prod", "vps"] = "prod"):
 
     캐시 히트 시 ka.auth() 로 토큰을 재검증한다(유효하면 캐시 재사용, 만료(EGW00123)면 재발급).
     kis_auth.reAuth 는 _last_auth_time 24h 기준이라 '캐시된 오래된 토큰'엔 안 맞아 직접 갱신.
+    최초 실행이 토큰 발급 제한(분당1회)에 걸리면 쿨다운 후 자동 복구.
     """
     with _BOOTSTRAP_LOCK:
         if svr in _BOOTSTRAP_CACHE:
@@ -209,18 +216,38 @@ def bootstrap(svr: Literal["prod", "vps"] = "prod"):
             _refresh_token(ka, svr)
             _BOOTSTRAP_CACHE[svr] = (ka, ka.getTREnv())
             return _BOOTSTRAP_CACHE[svr]
-        result = _do_bootstrap(svr)
+        # 미캐시(최초/이전 실패). 직전 실패 쿨다운 중이면 발급 재시도 없이 즉시 명확한 에러.
+        if time.monotonic() < _bootstrap_fail_until[0]:
+            raise RuntimeError(
+                "KIS 인증 재시도 대기 중 — 토큰 발급 분당 1회 제한(EGW00133). "
+                "새 기기 최초 실행 시 1~2분 내 자동 복구됩니다."
+            )
+        try:
+            result = _do_bootstrap(svr)
+        except Exception:
+            _bootstrap_fail_until[0] = time.monotonic() + _BOOTSTRAP_RETRY_COOLDOWN
+            raise
         _BOOTSTRAP_CACHE[svr] = result
         return result
 
 
 def _patch_trenv_token(ka) -> None:
     """upstream kis_auth 버그 우회: changeTREnv 가 TRENV.my_token 을 빈 값으로 두는 문제
-    (kis_auth.py:179). 캐시에서 실제 토큰을 읽어 namedtuple 교체."""
-    if not ka.getTREnv().my_token:
-        tok = ka.read_token()
-        if tok:
-            ka._TRENV = ka.getTREnv()._replace(my_token=tok)
+    (kis_auth.py:179). 캐시에서 실제 토큰을 읽어 namedtuple 교체.
+
+    auth 실패 시 getTREnv() 가 빈 튜플일 수 있다 → getattr 로 안전 접근하고, 토큰을 끝내
+    얻지 못하면 정체불명의 AttributeError 대신 명확한 인증 실패 에러를 던진다."""
+    env = ka.getTREnv()
+    if getattr(env, "my_token", None):
+        return
+    tok = ka.read_token()
+    if not tok:
+        raise RuntimeError(
+            "KIS 토큰 발급/로드 실패 — 키가 올바른지 확인하세요. 새 기기 최초 실행이면 "
+            "토큰 발급 분당 1회 제한(EGW00133)일 수 있어 잠시 후 자동 복구됩니다."
+        )
+    if hasattr(env, "_replace"):
+        ka._TRENV = env._replace(my_token=tok)
 
 
 def _refresh_token(ka, svr: str) -> None:
