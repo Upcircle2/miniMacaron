@@ -15,17 +15,29 @@ final class IndicesStore: ObservableObject {
     @Published var domestic: [IndexQuote] = []
 }
 
+/// 메뉴바 라벨 전용 스토어 — 항상 화면에 떠있는 라벨이 장중 매 0.5초 재렌더되면 24/7
+/// 누적의 주원인이 된다. 라벨이 이 스토어만 구독하고, 모델은 title 을 ~1.5초로 throttle 해
+/// 푸시 → 메뉴바 렌더 빈도 3배↓ (데이터 폴링 0.5초는 그대로, 표는 열면 0.5초 그대로).
+@MainActor
+final class MenuBarStore: ObservableObject {
+    @Published var title = "miniMacaron"
+}
+
 /// 백엔드(127.0.0.1:8000)를 폴링해 선택된 시장의 잔고를 보관.
 @MainActor
 final class BalanceModel: ObservableObject {
     @Published var market: Market = .overseas {
         // 시장별 지수를 따로 캐시 → 토글 시 캐시된 값 즉시 표시(깜빡임 없음) + 백그라운드 갱신.
-        didSet { Task { await fetchOnce(); await fetchIndices() } }
+        didSet { pushMenuTitle(force: true); Task { await fetchOnce(); await fetchIndices() } }
     }
     @Published var overseas: OverseasSnapshot?
     @Published var domestic: DomesticSnapshot?
     /// 지수 캐시 — 별도 ObservableObject (지수 변동이 BalanceModel 구독자를 안 깨움).
     let indicesStore = IndicesStore()
+    /// 메뉴바 라벨 — 별도 스토어 + ~1.5초 throttle (24/7 항시 렌더 누적 완화).
+    let menuBar = MenuBarStore()
+    private var lastMenuPush = Date.distantPast
+    private let menuMinInterval: TimeInterval = 1.5
     @Published var connected = true            // 연속 실패 누적 시에만 false
     @Published var lastUpdate: Date?           // 잔고가 '실제로 바뀐' 마지막 시각
     @Published private(set) var stale = false  // 신선도 경고(>90s) — 상태 변할 때만 갱신(재렌더 최소화)
@@ -97,6 +109,7 @@ final class BalanceModel: ObservableObject {
             overseas = o; updateFreshness(o.as_of); lastUpdate = Date()
         }
         if let d: DomesticSnapshot = await fetchValue("/balance/domestic") { domestic = d }
+        pushMenuTitle(force: true)
         await fetchIndicesFor(.overseas)
         await fetchIndicesFor(.domestic)
     }
@@ -192,6 +205,17 @@ final class BalanceModel: ObservableObject {
                 if domestic != v { domestic = v; lastUpdate = Date() }
             }
         }
+        pushMenuTitle()  // 메뉴바 라벨은 ~1.5초로 throttle (값 동일하면 미푸시)
+    }
+
+    /// 메뉴바 라벨 throttle 푸시 — 1.5초 gate + 값 변경 시에만. 항시 떠있는 라벨의 24/7 누적 완화.
+    private func pushMenuTitle(force: Bool = false) {
+        let now = Date()
+        guard force || now.timeIntervalSince(lastMenuPush) >= menuMinInterval else { return }
+        let t = menuTitle
+        guard menuBar.title != t else { return }
+        lastMenuPush = now
+        menuBar.title = t
     }
 
     /// GET → 디코드. 성공 시 연결상태만 (전이 시) 갱신하고 값 반환. 실패 시 nil.
